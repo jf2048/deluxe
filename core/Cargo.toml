@@ -1,0 +1,12 @@
+[package]
+name = "deluxe-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+proc-macro2 = "1.0.38"
+quote = "1.0.18"
+syn = { version = "1.0.96", features = ["derive", "full", "parsing", "printing"], default-features = false }

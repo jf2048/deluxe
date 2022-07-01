@@ -1,0 +1,13 @@
+[package]
+name = "deluxe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+proc-macro2 = "1.0.38"
+syn = { version = "1.0.96", features = ["full", "parsing"], default-features = false }
+deluxe-core = { path = "./core", version = "0.1.0" }
+deluxe-macros = { path = "./macros", version = "0.1.0" }
+
+[workspace]
+members = ["core", "macros"]
