@@ -203,11 +203,26 @@ impl<T: ParseMetaItem> ParseMetaItem for SpannedValue<T> {
 }
 
 impl<T: ParseMetaFlatUnnamed> ParseMetaFlatUnnamed for SpannedValue<T> {
+    fn field_count() -> Option<usize> {
+        T::field_count()
+    }
     fn parse_meta_flat_unnamed(input: syn::parse::ParseStream) -> Result<Self> {
         let span = input.span();
         let value = T::parse_meta_flat_unnamed(input)?;
         let span = input.span().join(span).unwrap();
         Ok(Self { value, span })
+    }
+}
+
+impl<T: ParseMetaFlatNamed> ParseMetaFlatNamed for SpannedValue<T> {
+    fn field_names() -> std::borrow::Cow<'static, [&'static str]> {
+        T::field_names()
+    }
+    fn parse_meta_flat_named(input: syn::parse::ParseStream) -> Result<(Self, Vec<&'static str>)> {
+        let span = input.span();
+        let (value, fields) = T::parse_meta_flat_named(input)?;
+        let span = input.span().join(span).unwrap();
+        Ok((Self { value, span }, fields))
     }
 }
 

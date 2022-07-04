@@ -17,7 +17,7 @@ pub mod ____private {
 
 pub use deluxe_core::{
     Error, Errors, ExtractAttributes, HasAttributes, ParseAttributes, ParseMetaFlatNamed,
-    ParseMetaFlatUnnamed, ParseMetaItem, Result,
+    ParseMetaFlatUnnamed, ParseMetaItem, Result, from_str,
 };
 pub use deluxe_macros::*;
 

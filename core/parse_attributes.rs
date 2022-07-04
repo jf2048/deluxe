@@ -12,8 +12,14 @@ pub trait ExtractAttributes<T: HasAttributes>: Sized {
     fn extract_attributes(obj: &mut T) -> Result<Self>;
 }
 
+/// Trait for a `syn` type containing a list of attributes.
+///
+/// Implementations are provided for all `syn` types containing a `Vec<syn::Attribute>`.
 pub trait HasAttributes {
+    /// Returns an immutable slice of attributes.
     fn attrs(&self) -> &[syn::Attribute];
+    /// Returns a mutable `Vec` of attributes. Returns `None` if the type does not support mutable
+    /// attributes.
     fn attrs_mut(&mut self) -> Result<&mut Vec<syn::Attribute>>;
 }
 

@@ -110,8 +110,7 @@ pub fn parse_named_collection<T: ParseMetaItem>(input: ParseStream) -> Result<T>
         input.parse::<Token![=]>()?;
         T::parse_unnamed_meta_item(input)
     } else if lookahead.peek(Paren) {
-        let content = Paren::parse_delimited(input)?;
-        T::parse_meta_item(&content)
+        Paren::parse_delimited_meta_item(input)
     } else {
         Err(lookahead.error().into())
     }
