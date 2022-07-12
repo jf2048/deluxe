@@ -1,7 +1,6 @@
 #[doc(hidden)]
 pub mod ____private {
     pub use deluxe_core::parse_helpers;
-    pub use proc_macro2::Span;
     pub use std::{
         borrow::Cow,
         clone::Clone,
@@ -16,8 +15,8 @@ pub mod ____private {
 }
 
 pub use deluxe_core::{
-    Error, Errors, ExtractAttributes, HasAttributes, ParseAttributes, ParseMetaFlatNamed,
-    ParseMetaFlatUnnamed, ParseMetaItem, Result, from_str,
+    from_str, Error, Errors, ExtractAttributes, HasAttributes, ParseAttributes, ParseMetaFlatNamed,
+    ParseMetaFlatUnnamed, ParseMetaItem, ParseMode, Result,
 };
 pub use deluxe_macros::*;
 
@@ -30,8 +29,11 @@ mod tests {
     struct U(::std::primitive::i32);
 
     impl crate::ParseMetaItem for U {
-        fn parse_meta_item(input: private::ParseStream) -> crate::Result<Self> {
-            crate::Result::Ok(Self(crate::ParseMetaItem::parse_meta_item(input)?))
+        fn parse_meta_item(
+            input: private::ParseStream,
+            mode: crate::ParseMode,
+        ) -> crate::Result<Self> {
+            crate::Result::Ok(Self(crate::ParseMetaItem::parse_meta_item(input, mode)?))
         }
     }
 
@@ -42,30 +44,34 @@ mod tests {
         }
         fn parse_attributes(obj: &T) -> crate::Result<Self> {
             let errors = crate::Errors::new();
-            let mut ____field0 = private::Option::None;
+            let mut ret = private::Option::None;
             let attrs = crate::HasAttributes::attrs(obj);
             for attr in attrs {
                 if <Self as crate::ParseAttributes<T>>::path_matches(&attr.path) {
-                    if ____field0.is_some() {
-                        errors.push_spanned(&attr.path, "Duplicate attribute");
+                    if ret.is_some() {
+                        errors.push_spanned(&attr.path, "Duplicate attribute for `U`");
                     }
-                    ____field0 = private::Option::Some(private::parse_helpers::parse_tokens(
+                    let res = private::parse_helpers::parse_tokens(
                         private::Clone::clone(&attr.tokens),
-                        crate::ParseMetaItem::parse_named_meta_item,
-                    )?);
-                    if let crate::Result::Err(err) =
-                        private::parse_helpers::parse_eof_or_trailing_comma(input)
-                    {
-                        errors.extend(err);
+                        private::parse_helpers::parse_named_meta_item,
+                    );
+                    match res {
+                        crate::Result::Ok(res) => ret = private::Option::Some(res),
+                        crate::Result::Err(err) => errors.push_syn(err),
                     }
-                    return crate::Result::Ok(ret);
                 }
             }
 
-            crate::Result::Err(crate::Error::new_single(
-                private::Span::call_site(),
-                "Attribute not found",
-            ))
+            match ret {
+                private::Option::None => {
+                    errors.push_call_site("Attribute not found for `U`");
+                    crate::Result::Err(errors.check().unwrap_err())
+                }
+                private::Option::Some(ret) => {
+                    errors.check()?;
+                    crate::Result::Ok(ret)
+                }
+            }
         }
     }
 
@@ -76,44 +82,70 @@ mod tests {
         }
         fn extract_attributes(obj: &mut T) -> crate::Result<Self> {
             let errors = crate::Errors::new();
+            let mut ret = private::Option::None;
             let attrs = crate::HasAttributes::attrs_mut(obj)?;
             let mut index = 0;
             while index < attrs.len() {
                 if <Self as crate::ParseAttributes<T>>::path_matches(&attrs[index].path) {
                     let attr = attrs.remove(index);
-                    let ret = private::parse_helpers::parse_tokens(
-                        attr.tokens,
-                        crate::ParseMetaItem::parse_named_meta_item,
-                    )?;
-                    return crate::Result::Ok(ret);
+                    if ret.is_some() {
+                        errors.push_spanned(&attr.path, "Duplicate attribute for `U`");
+                    }
+                    let res = private::parse_helpers::parse_tokens(
+                        private::Clone::clone(&attr.tokens),
+                        private::parse_helpers::parse_named_meta_item,
+                    );
+                    match res {
+                        crate::Result::Ok(res) => ret = private::Option::Some(res),
+                        crate::Result::Err(err) => errors.push_syn(err),
+                    }
                 } else {
                     index += 1;
                 }
             }
-            crate::Result::Err(crate::Error::new_single(
-                private::Span::call_site(),
-                "Attribute not found",
-            ))
+
+            match ret {
+                private::Option::None => {
+                    errors.push_call_site("Attribute not found for `U`");
+                    crate::Result::Err(errors.check().unwrap_err())
+                }
+                private::Option::Some(ret) => {
+                    errors.check()?;
+                    crate::Result::Ok(ret)
+                }
+            }
         }
     }
 
     struct A(::std::primitive::i32, ::std::string::String);
 
     impl crate::ParseMetaItem for A {
-        fn parse_meta_item(input: private::ParseStream) -> crate::Result<Self> {
+        #[inline]
+        fn parse_meta_item(
+            input: private::ParseStream,
+            _mode: crate::ParseMode,
+        ) -> crate::Result<Self> {
+            <private::parse_helpers::Paren as private::parse_helpers::ParseDelimited>::parse_delimited_meta_item(input, crate::ParseMode::Unnamed)
+        }
+        fn parse_meta_item_inline(
+            input: private::ParseStream,
+            _mode: crate::ParseMode,
+        ) -> crate::Result<Self> {
             let mut ____field1 = private::Option::None;
             let mut ____field2 = private::Option::None;
             private::parse_helpers::parse_tuple_struct(input, 2, |input, index| {
                 match index {
                     0 => {
-                        ____field1 = private::Option::Some(
-                            crate::ParseMetaItem::parse_unnamed_meta_item(input)?,
-                        )
+                        ____field1 = private::Option::Some(crate::ParseMetaItem::parse_meta_item(
+                            input,
+                            crate::ParseMode::Unnamed,
+                        )?)
                     }
                     1 => {
-                        ____field2 = private::Option::Some(
-                            crate::ParseMetaItem::parse_unnamed_meta_item(input)?,
-                        )
+                        ____field2 = private::Option::Some(crate::ParseMetaItem::parse_meta_item(
+                            input,
+                            crate::ParseMode::Unnamed,
+                        )?)
                     }
                     _ => private::unreachable!(),
                 }
@@ -121,39 +153,31 @@ mod tests {
             })?;
             let errors = crate::Errors::new();
             if ____field1.is_none() {
-                errors.push(private::Span::call_site(), "Missing required tuple field 0");
+                errors.push_call_site("Missing required tuple field 0 for `A`");
             }
             if ____field2.is_none() {
-                errors.push(private::Span::call_site(), "Missing required tuple field 1");
-            }
-            if !input.is_empty() {
-                errors.push(input.span(), "Unknown token");
-                return crate::Result::Err(errors);
+                errors.push_call_site("Missing required tuple field 1 for `A`");
             }
             let ____field1 = match ____field1 {
                 private::Option::Some(____field1) => ____field1,
-                private::Option::None => return crate::Result::Err(errors),
+                private::Option::None => return crate::Result::Err(errors.check().unwrap_err()),
             };
             let ____field2 = match ____field2 {
                 private::Option::Some(____field2) => ____field2,
-                private::Option::None => return crate::Result::Err(errors),
+                private::Option::None => return crate::Result::Err(errors.check().unwrap_err()),
             };
             crate::Result::Ok(A(____field1, ____field2))
-        }
-        #[inline]
-        fn parse_unnamed_meta_item(input: private::ParseStream) -> crate::Result<Self> {
-            <private::parse_helpers::Paren as private::parse_helpers::ParseDelimited>::parse_delimited_meta_item(input)
-        }
-        #[inline]
-        fn parse_named_meta_item(input: private::ParseStream) -> crate::Result<Self> {
-            <private::parse_helpers::Paren as private::parse_helpers::ParseDelimited>::parse_delimited_meta_item(input)
         }
     }
 
     impl crate::ParseMetaFlatUnnamed for A {
         #[inline]
+        fn field_count() -> private::Option<usize> {
+            private::Option::Some(2)
+        }
+        #[inline]
         fn parse_meta_flat_unnamed(input: private::ParseStream) -> crate::Result<Self> {
-            <Self as crate::ParseMetaItem>::parse_meta_item(input)
+            <Self as crate::ParseMetaItem>::parse_meta_item_inline(input, crate::ParseMode::Unnamed)
         }
     }
 
@@ -179,15 +203,17 @@ mod tests {
                                     match index {
                                         0 => {
                                             ____field1 = private::Option::Some(
-                                                crate::ParseMetaItem::parse_unnamed_meta_item(
+                                                crate::ParseMetaItem::parse_meta_item(
                                                     input,
+                                                    crate::ParseMode::Unnamed,
                                                 )?,
                                             )
                                         }
                                         1 => {
                                             ____field2 = private::Option::Some(
-                                                crate::ParseMetaItem::parse_unnamed_meta_item(
+                                                crate::ParseMetaItem::parse_meta_item(
                                                     input,
+                                                    crate::ParseMode::Unnamed,
                                                 )?,
                                             )
                                         }
@@ -196,11 +222,6 @@ mod tests {
                                     crate::Result::Ok(())
                                 },
                             )?;
-                            if let crate::Result::Err(err) =
-                                private::parse_helpers::parse_eof_or_trailing_comma(input)
-                            {
-                                errors.extend(err);
-                            }
                             crate::Result::Ok(())
                         },
                     );
@@ -210,22 +231,18 @@ mod tests {
                 }
             }
             if ____field1.is_none() {
-                errors.push(private::Span::call_site(), "Missing required tuple field 0");
+                errors.push_call_site("Missing required tuple field 0");
             }
             if ____field2.is_none() {
-                errors.push(private::Span::call_site(), "Missing required tuple field 1");
-            }
-            if !input.is_empty() {
-                errors.push(input.span(), "Unknown token");
-                return crate::Result::Err(errors);
+                errors.push_call_site("Missing required tuple field 1");
             }
             let ____field1 = match ____field1 {
                 private::Option::Some(____field1) => ____field1,
-                private::Option::None => return crate::Result::Err(errors),
+                private::Option::None => return crate::Result::Err(errors.check().unwrap_err()),
             };
             let ____field2 = match ____field2 {
                 private::Option::Some(____field2) => ____field2,
-                private::Option::None => return crate::Result::Err(errors),
+                private::Option::None => return crate::Result::Err(errors.check().unwrap_err()),
             };
             crate::Result::Ok(A(____field1, ____field2))
         }
@@ -251,12 +268,18 @@ mod tests {
                                 match index {
                                     0 => {
                                         ____field1 = private::Option::Some(
-                                            crate::ParseMetaItem::parse_unnamed_meta_item(input)?,
+                                            crate::ParseMetaItem::parse_meta_item(
+                                                input,
+                                                crate::ParseMode::Unnamed,
+                                            )?,
                                         )
                                     }
                                     1 => {
                                         ____field2 = private::Option::Some(
-                                            crate::ParseMetaItem::parse_unnamed_meta_item(input)?,
+                                            crate::ParseMetaItem::parse_meta_item(
+                                                input,
+                                                crate::ParseMode::Unnamed,
+                                            )?,
                                         )
                                     }
                                     _ => private::unreachable!(),
@@ -271,9 +294,7 @@ mod tests {
                     index += 1;
                 }
             }
-            if !errors.is_empty() {
-                return crate::Result::Err(errors);
-            }
+            errors.check()?;
             crate::Result::Ok(A(____field1.unwrap(), ____field2.unwrap()))
         }
     }
@@ -284,7 +305,17 @@ mod tests {
     }
 
     impl crate::ParseMetaItem for B {
-        fn parse_meta_item(input: private::ParseStream) -> crate::Result<Self> {
+        #[inline]
+        fn parse_meta_item(
+            input: private::ParseStream,
+            _mode: crate::ParseMode,
+        ) -> crate::Result<Self> {
+            <private::parse_helpers::Brace as private::parse_helpers::ParseDelimited>::parse_delimited_meta_item(input, crate::ParseMode::Named)
+        }
+        fn parse_meta_item_inline(
+            input: private::ParseStream,
+            _mode: crate::ParseMode,
+        ) -> crate::Result<Self> {
             let mut ____field1 = private::Option::None;
             let mut ____field2 = private::Option::None;
             let errors = crate::Errors::new();
@@ -292,35 +323,31 @@ mod tests {
                 match private::ToString::to_string(&ident).as_str() {
                     "my_a" => {
                         ____field1 = private::Option::Some(
-                            crate::ParseMetaItem::parse_named_meta_item(input)?,
+                            private::parse_helpers::parse_named_meta_item(input)?,
                         )
                     }
                     "my_b" => {
                         ____field2 = private::Option::Some(
-                            crate::ParseMetaItem::parse_named_meta_item(input)?,
+                            private::parse_helpers::parse_named_meta_item(input)?,
                         )
                     }
-                    _ => errors.push_spanned(ident, private::format!("Unknown field `{}`", ident)),
+                    _ => errors.push_spanned(&ident, private::format!("Unknown field `{}`", ident)),
                 }
                 crate::Result::Ok(())
             })?;
             if ____field1.is_none() {
-                errors.push(private::Span::call_site(), "Missing required field `my_a`");
+                errors.push_call_site("Missing required field `my_a`");
             }
             if ____field2.is_none() {
-                errors.push(private::Span::call_site(), "Missing required field `my_b`");
-            }
-            if !input.is_empty() {
-                errors.push(input.span(), "Unknown token");
-                return crate::Result::Err(errors);
+                errors.push_call_site("Missing required field `my_b`");
             }
             let ____field1 = match ____field1 {
                 private::Option::Some(____field1) => ____field1,
-                private::Option::None => return crate::Result::Err(errors),
+                private::Option::None => return crate::Result::Err(errors.check().unwrap_err()),
             };
             let ____field2 = match ____field2 {
                 private::Option::Some(____field2) => ____field2,
-                private::Option::None => return crate::Result::Err(errors),
+                private::Option::None => return crate::Result::Err(errors.check().unwrap_err()),
             };
             crate::Result::Ok(B {
                 my_a: ____field1,
@@ -337,8 +364,8 @@ mod tests {
         fn parse_meta_flat_named(
             input: private::ParseStream,
         ) -> crate::Result<(Self, private::Vec<&'static private::str>)> {
-            <Self as crate::ParseMetaItem>::parse_meta_item(input);
-            todo!()
+            <Self as crate::ParseMetaItem>::parse_meta_item_inline(input, crate::ParseMode::Named);
+            ::std::todo!()
         }
     }
 }

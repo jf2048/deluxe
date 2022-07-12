@@ -18,7 +18,7 @@ pub mod from_str {
         T::Err: std::fmt::Display,
     {
         let s = input.parse::<syn::LitStr>()?;
-        Ok(T::from_str(&s.value()).map_err(|e| Error::new_spanned(s, e.to_string()))?)
+        T::from_str(&s.value()).map_err(|e| Error::new_spanned(s, e.to_string()))
     }
     #[inline]
     pub fn parse_named_meta_item<T: FromStr>(input: ParseStream) -> Result<T>
@@ -26,6 +26,6 @@ pub mod from_str {
         T::Err: std::fmt::Display,
     {
         let s = crate::parse_helpers::parse_named_meta_item::<syn::LitStr>(input)?;
-        Ok(T::from_str(&s.value()).map_err(|e| Error::new_spanned(s, e.to_string()))?)
+        T::from_str(&s.value()).map_err(|e| Error::new_spanned(s, e.to_string()))
     }
 }

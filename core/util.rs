@@ -32,6 +32,10 @@ impl Errors {
         self.push_syn(Error::new(span, message));
     }
     #[inline]
+    pub fn push_call_site<T: Display>(&self, message: T) {
+        self.push(Span::call_site(), message);
+    }
+    #[inline]
     pub fn push_spanned<T, U>(&self, tokens: T, message: U)
     where
         T: quote::ToTokens,
@@ -120,7 +124,6 @@ impl Iterator for ErrorsIntoIter {
     }
 }
 
-
 #[derive(Copy, Clone, Debug)]
 pub struct SpannedValue<T> {
     value: T,
@@ -194,9 +197,9 @@ impl<T> Spanned for SpannedValue<T> {
 }
 
 impl<T: ParseMetaItem> ParseMetaItem for SpannedValue<T> {
-    fn parse_meta_item(input: syn::parse::ParseStream) -> Result<Self> {
+    fn parse_meta_item(input: syn::parse::ParseStream, mode: crate::ParseMode) -> Result<Self> {
         let span = input.span();
-        let value = T::parse_meta_item(input)?;
+        let value = T::parse_meta_item(input, mode)?;
         let span = input.span().join(span).unwrap();
         Ok(Self { value, span })
     }

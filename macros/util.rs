@@ -10,7 +10,7 @@ macro_rules! bootstrap_parse {
         }
 
         impl deluxe_core::ParseMetaItem for $ident {
-            fn parse_meta_item(input: ParseStream) -> deluxe_core::Result<Self> {
+            fn parse_meta_item(input: ParseStream, mode: deluxe_core::ParseMode) -> deluxe_core::Result<Self> {
                 todo!()
             }
         }

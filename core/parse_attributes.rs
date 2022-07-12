@@ -39,7 +39,7 @@ impl HasAttributes for [syn::Attribute] {
         Err(syn::Error::new(
             span,
             "`HasAttributes::attrs_mut()` not supported on immutable `[syn::Attribute]`, try using a `Vec<syn::Attribute>`"
-        ).into())
+        ))
     }
 }
 
@@ -164,13 +164,11 @@ impl HasAttributes for syn::Expr {
             syn::Expr::Verbatim(_) => Err(syn::Error::new_spanned(
                 self,
                 "`HasAttributes::attrs_mut` not supported with `syn::Expr::Verbatim`",
-            )
-            .into()),
+            )),
             _ => Err(syn::Error::new_spanned(
                 self,
                 "`HasAttributes::attrs_mut` encountered unknown `syn::Expr` variant",
-            )
-            .into()),
+            )),
         }
     }
 }
@@ -238,13 +236,11 @@ impl HasAttributes for syn::ForeignItem {
             syn::ForeignItem::Verbatim(_) => Err(syn::Error::new_spanned(
                 self,
                 "`HasAttributes::attrs_mut` not supported with `syn::ForeignItem::Verbatim`",
-            )
-            .into()),
+            )),
             _ => Err(syn::Error::new_spanned(
                 self,
                 "`HasAttributes::attrs_mut` encountered unknown `syn::ForeignItem` variant",
-            )
-            .into()),
+            )),
         }
     }
 }
@@ -273,13 +269,11 @@ impl HasAttributes for syn::ImplItem {
             syn::ImplItem::Verbatim(_) => Err(syn::Error::new_spanned(
                 self,
                 "`HasAttributes::attrs_mut` not supported with `syn::ImplItem::Verbatim`",
-            )
-            .into()),
+            )),
             _ => Err(syn::Error::new_spanned(
                 self,
                 "`HasAttributes::attrs_mut` encountered unknown `syn::ImplItem` variant",
-            )
-            .into()),
+            )),
         }
     }
 }
@@ -332,13 +326,11 @@ impl HasAttributes for syn::Item {
             syn::Item::Verbatim(_) => Err(syn::Error::new_spanned(
                 self,
                 "`HasAttributes::attrs_mut` not supported with `syn::Item::Verbatim`",
-            )
-            .into()),
+            )),
             _ => Err(syn::Error::new_spanned(
                 self,
                 "`HasAttributes::attrs_mut` encountered unknown `syn::Item` variant",
-            )
-            .into()),
+            )),
         }
     }
 }
@@ -403,13 +395,11 @@ impl HasAttributes for syn::Pat {
             syn::Pat::Verbatim(_) => Err(syn::Error::new_spanned(
                 self,
                 "`HasAttributes::attrs_mut` not supported with `syn::Pat::Verbatim`",
-            )
-            .into()),
+            )),
             _ => Err(syn::Error::new_spanned(
                 self,
                 "`HasAttributes::attrs_mut` encountered unknown `syn::Pat` variant",
-            )
-            .into()),
+            )),
         }
     }
 }
@@ -450,13 +440,11 @@ impl HasAttributes for syn::TraitItem {
             syn::TraitItem::Verbatim(_) => Err(syn::Error::new_spanned(
                 self,
                 "`HasAttributes::attrs_mut` not supported with `syn::TraitItem::Verbatim`",
-            )
-            .into()),
+            )),
             _ => Err(syn::Error::new_spanned(
                 self,
                 "`HasAttributes::attrs_mut` encountered unknown `syn::TraitItem` variant",
-            )
-            .into()),
+            )),
         }
     }
 }

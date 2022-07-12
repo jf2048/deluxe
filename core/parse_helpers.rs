@@ -1,4 +1,4 @@
-use crate::{Errors, ParseMetaItem, Result};
+use crate::{Errors, ParseMetaItem, ParseMode, Result};
 use proc_macro2::{TokenStream, TokenTree};
 pub use syn::token::{Brace, Bracket, Paren};
 use syn::{
@@ -24,9 +24,12 @@ pub trait ParseDelimited: sealed::Sealed {
     /// Parse a [`ParseMetaItem`] surrounded by a delimiter. The inner group is allowed to contain
     /// a trailing comma.
     #[inline]
-    fn parse_delimited_meta_item<T: ParseMetaItem>(input: ParseStream) -> Result<T> {
+    fn parse_delimited_meta_item<T: ParseMetaItem>(
+        input: ParseStream,
+        mode: ParseMode,
+    ) -> Result<T> {
         let content = Self::parse_delimited(input)?;
-        let result = T::parse_meta_item(&content)?;
+        let result = T::parse_meta_item_inline(&content, mode)?;
         parse_eof_or_trailing_comma(&content)?;
         Ok(result)
     }
@@ -78,41 +81,11 @@ pub fn parse_named_meta_item<T: ParseMetaItem>(input: ParseStream) -> Result<T> 
     let lookahead = input.lookahead1();
     if lookahead.peek(Token![=]) {
         input.parse::<Token![=]>()?;
-        T::parse_unnamed_meta_item(input)
+        T::parse_meta_item(input, ParseMode::Named)
     } else if lookahead.peek(Paren) {
-        Paren::parse_delimited_meta_item(input)
+        Paren::parse_delimited_meta_item(input, ParseMode::Named)
     } else {
-        Err(lookahead.error().into())
-    }
-}
-
-#[inline]
-pub fn parse_optional_named_meta_item<T: ParseMetaItem>(input: ParseStream) -> Result<Option<T>> {
-    if input.is_empty() || input.peek(Token![,]) {
-        return Ok(None);
-    }
-    let lookahead = input.lookahead1();
-    if lookahead.peek(Token![=]) {
-        input.parse::<Token![=]>()?;
-        T::parse_meta_item(input).map(Some)
-    } else if lookahead.peek(Paren) {
-        Paren::parse_delimited_meta_item(input).map(Some)
-    } else {
-        lookahead.peek(Token![,]);
-        Err(lookahead.error().into())
-    }
-}
-
-#[inline]
-pub fn parse_named_collection<T: ParseMetaItem>(input: ParseStream) -> Result<T> {
-    let lookahead = input.lookahead1();
-    if lookahead.peek(Token![=]) {
-        input.parse::<Token![=]>()?;
-        T::parse_unnamed_meta_item(input)
-    } else if lookahead.peek(Paren) {
-        Paren::parse_delimited_meta_item(input)
-    } else {
-        Err(lookahead.error().into())
+        Err(lookahead.error())
     }
 }
 
