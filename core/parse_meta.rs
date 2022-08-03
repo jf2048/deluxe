@@ -1,7 +1,6 @@
 use crate::{parse_helpers::*, Errors, Result};
 use proc_macro2::Span;
 use std::{
-    borrow::Cow,
     collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, LinkedList, VecDeque},
     hash::Hash,
 };
@@ -28,22 +27,42 @@ pub trait ParseMetaItem: Sized {
     fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
         Self::parse_meta_item(input, _mode)
     }
+    #[inline]
     fn parse_meta_item_flag(_span: Span) -> Result<Self> {
-        Err(syn::Error::new(
-            _span,
-            "unexpected flag, expected `=` or parentheses",
-        ))
+        Err(flag_disallowed_error(_span))
     }
 }
 
 pub trait ParseMetaFlatUnnamed: Sized {
     fn field_count() -> Option<usize>;
-    fn parse_meta_flat_unnamed(input: ParseStream) -> Result<Self>;
+    fn parse_meta_flat_unnamed(inputs: &[ParseStream], index: usize) -> Result<Self>;
 }
 
 pub trait ParseMetaFlatNamed: Sized {
-    fn field_names() -> Cow<'static, [&'static str]>;
-    fn parse_meta_flat_named(input: ParseStream) -> Result<(Self, Vec<&'static str>)>;
+    fn field_names() -> &'static [&'static str];
+    fn parse_meta_flat_named(
+        inputs: &[ParseStream],
+        allowed: Option<&[&str]>,
+    ) -> Result<Self>;
+    fn requires_path() -> bool {
+        false
+    }
+    fn parse_meta_flat_for_path(
+        inputs: &[ParseStream],
+        path: &str,
+        allowed: Option<&[&str]>,
+    ) -> Result<Self> {
+        let _ = path;
+        Self::parse_meta_flat_named(inputs, allowed)
+    }
+}
+
+pub trait ParseMetaFlatPrefixed: ParseMetaFlatNamed {
+    fn parse_meta_flat_prefixed(
+        inputs: &[ParseStream],
+        prefix: &str,
+        allowed: Option<&[&str]>,
+    ) -> Result<Self>;
 }
 
 macro_rules! impl_parse_meta_item_primitive {
@@ -127,6 +146,10 @@ impl<T: ParseMetaItem> ParseMetaItem for Option<T> {
             }
         }
     }
+    #[inline]
+    fn parse_meta_item_flag(span: Span) -> Result<Self> {
+        T::parse_meta_item_flag(span).map(Some)
+    }
 }
 
 impl<T: ParseMetaItem, const N: usize> ParseMetaItem for [T; N] {
@@ -134,20 +157,9 @@ impl<T: ParseMetaItem, const N: usize> ParseMetaItem for [T; N] {
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
         Bracket::parse_delimited_meta_item(input, ParseMode::Unnamed)
     }
+    #[inline]
     fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-        let span = input.span();
-        let mut a = arrayvec::ArrayVec::<T, N>::new();
-        parse_tuple_struct(input, N, |stream, _| {
-            a.push(T::parse_meta_item(stream, ParseMode::Unnamed)?);
-            Ok(())
-        })?;
-        let span = input.span().join(span).unwrap_or_else(Span::call_site);
-        a.into_inner().map_err(|a| {
-            syn::Error::new(
-                span,
-                format!("Expected array of length {}, got {}", N, a.len()),
-            )
-        })
+        Self::parse_meta_flat_unnamed(&[input], 0)
     }
 }
 
@@ -156,9 +168,18 @@ impl<T: ParseMetaItem, const N: usize> ParseMetaFlatUnnamed for [T; N] {
     fn field_count() -> Option<usize> {
         Some(N)
     }
-    #[inline]
-    fn parse_meta_flat_unnamed(input: ParseStream) -> Result<Self> {
-        Self::parse_meta_item_inline(input, ParseMode::Unnamed)
+    fn parse_meta_flat_unnamed(inputs: &[ParseStream], index: usize) -> Result<Self> {
+        let mut a = arrayvec::ArrayVec::<T, N>::new();
+        parse_tuple_struct(inputs, N, |stream, _, _| {
+            a.push(T::parse_meta_item(stream, ParseMode::Unnamed)?);
+            Ok(())
+        })?;
+        a.into_inner().map_err(|a| {
+            syn::Error::new(
+                inputs_span(inputs),
+                format!("Expected array at index {} of length {}, got {}", index, N, a.len()),
+            )
+        })
     }
 }
 
@@ -169,19 +190,9 @@ macro_rules! impl_parse_meta_item_collection {
             fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
                 Bracket::parse_delimited_meta_item(input, ParseMode::Unnamed)
             }
+            #[inline]
             fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-                let mut $ident = Self::new();
-                loop {
-                    if input.is_empty() {
-                        break;
-                    }
-                    let $item = $param::parse_meta_item(input, ParseMode::Unnamed)?;
-                    $push;
-                    if !input.is_empty() {
-                        input.parse::<Token![,]>()?;
-                    }
-                }
-                Ok($ident)
+                Self::parse_meta_flat_unnamed(&[input], 0)
             }
         }
 
@@ -190,9 +201,62 @@ macro_rules! impl_parse_meta_item_collection {
             fn field_count() -> Option<usize> {
                 None
             }
+            fn parse_meta_flat_unnamed(inputs: &[ParseStream], _index: usize) -> Result<Self> {
+                let mut $ident = Self::new();
+                for input in inputs {
+                    loop {
+                        if input.is_empty() {
+                            break;
+                        }
+                        let $item = $param::parse_meta_item(input, ParseMode::Unnamed)?;
+                        $push;
+                        if !input.is_empty() {
+                            input.parse::<Token![,]>()?;
+                        }
+                    }
+                }
+                Ok($ident)
+            }
+        }
+
+        impl<$param: ParseMetaItem $(+ $bound $(+ $bounds)*)?> ParseMetaFlatNamed for $ty <$param> {
             #[inline]
-            fn parse_meta_flat_unnamed(input: ParseStream) -> Result<Self> {
-                Self::parse_meta_item_inline(input, ParseMode::Unnamed)
+            fn field_names() -> &'static [&'static str] {
+                &[]
+            }
+            #[inline]
+            fn parse_meta_flat_named(
+                inputs: &[ParseStream],
+                _allowed: Option<&[&str]>,
+            ) -> Result<Self> {
+                Err(syn::Error::new(
+                    inputs_span(inputs),
+                    concat!("Unable to flatten ", stringify!($ty), " without path"),
+                ))
+            }
+            #[inline]
+            fn requires_path() -> bool {
+                true
+            }
+            fn parse_meta_flat_for_path(
+                input: &[ParseStream],
+                path: &str,
+                allowed: Option<&[&str]>,
+            ) -> Result<Self> {
+                let mut $ident = Self::new();
+                let errors = Errors::new();
+                parse_struct(input, |input, p, pspan| {
+                    if p == path {
+                        let $item = parse_named_meta_item(input)?;
+                        $push;
+                    } else {
+                        check_unknown_attribute(p, pspan, allowed, &errors);
+                        skip_named_meta_item(input);
+                    }
+                    Ok(())
+                })?;
+                errors.check()?;
+                Ok($ident)
             }
         }
     };
@@ -205,25 +269,9 @@ macro_rules! impl_parse_meta_item_set {
             fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
                 Bracket::parse_delimited_meta_item(input, ParseMode::Unnamed)
             }
+            #[inline]
             fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-                let mut $ident = Self::new();
-                let errors = Errors::new();
-                loop {
-                    if input.is_empty() {
-                        break;
-                    }
-                    let span = input.span();
-                    let $item = $param::parse_meta_item(input, ParseMode::Unnamed)?;
-                    let span = input.span().join(span).unwrap();
-                    if !$push {
-                        errors.push(span, "Duplicate key");
-                    }
-                    if !input.is_empty() {
-                        input.parse::<Token![,]>()?;
-                    }
-                }
-                errors.check()?;
-                Ok($ident)
+                Self::parse_meta_flat_unnamed(&[input], 0)
             }
         }
 
@@ -232,9 +280,72 @@ macro_rules! impl_parse_meta_item_set {
             fn field_count() -> Option<usize> {
                 None
             }
+            fn parse_meta_flat_unnamed(inputs: &[ParseStream], _index: usize) -> Result<Self> {
+                let mut $ident = Self::new();
+                let errors = Errors::new();
+                for input in inputs {
+                    loop {
+                        if input.is_empty() {
+                            break;
+                        }
+                        let span = input.span();
+                        let $item = $param::parse_meta_item(input, ParseMode::Unnamed)?;
+                        let span = input.span().join(span).unwrap();
+                        if !$push {
+                            errors.push(span, "Duplicate key");
+                        }
+                        if !input.is_empty() {
+                            input.parse::<Token![,]>()?;
+                        }
+                    }
+                }
+                errors.check()?;
+                Ok($ident)
+            }
+        }
+
+        impl<$param: ParseMetaItem $(+ $bound $(+ $bounds)*)?> ParseMetaFlatNamed for $ty <$param> {
             #[inline]
-            fn parse_meta_flat_unnamed(input: ParseStream) -> Result<Self> {
-                Self::parse_meta_item_inline(input, ParseMode::Unnamed)
+            fn field_names() -> &'static [&'static str] {
+                &[]
+            }
+            #[inline]
+            fn parse_meta_flat_named(
+                inputs: &[ParseStream],
+                _allowed: Option<&[&str]>,
+            ) -> Result<Self> {
+                Err(syn::Error::new(
+                    inputs_span(inputs),
+                    concat!("Unable to flatten ", stringify!($ty), " without path"),
+                ))
+            }
+            #[inline]
+            fn requires_path() -> bool {
+                true
+            }
+            fn parse_meta_flat_for_path(
+                inputs: &[ParseStream],
+                path: &str,
+                allowed: Option<&[&str]>,
+            ) -> Result<Self> {
+                let errors = Errors::new();
+                let mut $ident = Self::new();
+                parse_struct(inputs, |input, p, pspan| {
+                    if p == path {
+                        let span = input.span();
+                        let $item = parse_named_meta_item(input)?;
+                        let span = input.span().join(span).unwrap();
+                        if !$push {
+                            errors.push(span, "Duplicate key");
+                        }
+                    } else {
+                        check_unknown_attribute(p, pspan, allowed, &errors);
+                        skip_named_meta_item(input);
+                    }
+                    Ok(())
+                })?;
+                errors.check()?;
+                Ok($ident)
             }
         }
     };
@@ -246,40 +357,46 @@ macro_rules! impl_parse_meta_item_map {
         $ident:ident, $key:ident, $value:ident, $push:expr
     ) => {
         impl<$kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)?, $vp: ParseMetaItem> ParseMetaItem for $ty <$kp, $vp> {
+            #[inline]
             fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
                 Brace::parse_delimited_meta_item(input, ParseMode::Named)
             }
+            #[inline]
             fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-                let mut $ident = Self::new();
-                let errors = Errors::new();
-                loop {
-                    if input.is_empty() {
-                        break;
-                    }
-                    let span = input.span();
-                    let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
-                    let span = input.span().join(span).unwrap();
-                    let $value = parse_named_meta_item(input)?;
-                    if !$push {
-                        errors.push(span, "Duplicate key");
-                    }
-                    if !input.is_empty() {
-                        input.parse::<Token![,]>()?;
-                    }
-                }
-                errors.check()?;
-                Ok($ident)
+                Self::parse_meta_flat_named(&[input], None)
             }
         }
 
         impl<$kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)?, $vp: ParseMetaItem> ParseMetaFlatNamed for $ty <$kp, $vp> {
             #[inline]
-            fn field_names() -> Cow<'static, [&'static str]> {
-                Cow::Borrowed(&[])
+            fn field_names() -> &'static [&'static str] {
+                &[]
             }
-            #[inline]
-            fn parse_meta_flat_named(input: ParseStream) -> Result<(Self, Vec<&'static str>)> {
-                Ok((Self::parse_meta_item_inline(input, ParseMode::Named)?, Vec::new()))
+            fn parse_meta_flat_named(
+                inputs: &[ParseStream],
+                _allowed: Option<&[&str]>,
+            ) -> Result<Self> {
+                let mut $ident = Self::new();
+                let errors = Errors::new();
+                for input in inputs {
+                    loop {
+                        if input.is_empty() {
+                            break;
+                        }
+                        let span = input.span();
+                        let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
+                        let span = input.span().join(span).unwrap();
+                        let $value = parse_named_meta_item(input)?;
+                        if !$push {
+                            errors.push(span, "Duplicate key");
+                        }
+                        if !input.is_empty() {
+                            input.parse::<Token![,]>()?;
+                        }
+                    }
+                }
+                errors.check()?;
+                Ok($ident)
             }
         }
     };
@@ -294,51 +411,34 @@ impl_parse_meta_item_map!(HashMap<K: Hash + Eq, V>, map, key, value, map.insert(
 impl_parse_meta_item_collection!(LinkedList<T>, list, item, list.push_back(item));
 impl_parse_meta_item_collection!(VecDeque<T>, v, item, v.push_back(item));
 
-impl<T: ParseMetaItem> ParseMetaItem for Box<T> {
-    #[inline]
-    fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
-        Ok(Self::new(T::parse_meta_item(input, mode)?))
-    }
+macro_rules! impl_parse_meta_item_wrapper {
+    ($i:ident $(::$ip:ident)* <$param:ident>) => {
+        impl<$param: ParseMetaItem> ParseMetaItem for $i $(::$ip)* <$param> {
+            #[inline]
+            fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
+                Ok(Self::new($param::parse_meta_item(input, mode)?))
+            }
+            #[inline]
+            fn parse_meta_item_flag(span: Span) -> Result<Self> {
+                $param::parse_meta_item_flag(span).map(Self::new)
+            }
+        }
+    };
 }
 
-impl<T: ParseMetaItem> ParseMetaItem for std::rc::Rc<T> {
-    #[inline]
-    fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
-        Ok(Self::new(T::parse_meta_item(input, mode)?))
-    }
-}
-
-impl<T: ParseMetaItem> ParseMetaItem for std::cell::Cell<T> {
-    #[inline]
-    fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
-        Ok(Self::new(T::parse_meta_item(input, mode)?))
-    }
-}
-
-impl<T: ParseMetaItem> ParseMetaItem for std::cell::RefCell<T> {
-    #[inline]
-    fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
-        Ok(Self::new(T::parse_meta_item(input, mode)?))
-    }
-}
+impl_parse_meta_item_wrapper!(Box<T>);
+impl_parse_meta_item_wrapper!(std::rc::Rc<T>);
+impl_parse_meta_item_wrapper!(std::cell::Cell<T>);
+impl_parse_meta_item_wrapper!(std::cell::RefCell<T>);
 
 impl<T: ParseMetaItem, P: Parse + Default> ParseMetaItem for Punctuated<T, P> {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
         Bracket::parse_delimited_meta_item(input, ParseMode::Unnamed)
     }
+    #[inline]
     fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-        let mut p = Punctuated::new();
-        loop {
-            if input.is_empty() {
-                break;
-            }
-            p.push(T::parse_meta_item(input, ParseMode::Unnamed)?);
-            if !input.is_empty() {
-                input.parse::<P>()?;
-            }
-        }
-        Ok(p)
+        Self::parse_meta_flat_unnamed(&[input], 0)
     }
 }
 
@@ -347,9 +447,20 @@ impl<T: ParseMetaItem, P: Parse + Default> ParseMetaFlatUnnamed for Punctuated<T
     fn field_count() -> Option<usize> {
         None
     }
-    #[inline]
-    fn parse_meta_flat_unnamed(input: ParseStream) -> Result<Self> {
-        Self::parse_meta_item_inline(input, ParseMode::Unnamed)
+    fn parse_meta_flat_unnamed(inputs: &[ParseStream], _index: usize) -> Result<Self> {
+        let mut p = Punctuated::new();
+        for input in inputs {
+            loop {
+                if input.is_empty() {
+                    break;
+                }
+                p.push(T::parse_meta_item(input, ParseMode::Unnamed)?);
+                if !input.is_empty() {
+                    input.parse::<P>()?;
+                }
+            }
+        }
+        Ok(p)
     }
 }
 
@@ -451,6 +562,10 @@ impl ParseMetaItem for () {
         Ok(())
     }
     #[inline]
+    fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        input.parse::<Nothing>().map(|_| ())
+    }
+    #[inline]
     fn parse_meta_item_flag(_: Span) -> Result<Self> {
         Ok(())
     }
@@ -459,28 +574,13 @@ impl ParseMetaItem for () {
 macro_rules! impl_parse_meta_item_tuple {
     ($len:literal: $($index:literal $param:tt $item:ident)+) => {
         impl<$($param: ParseMetaItem,)+> ParseMetaItem for ($($param,)+) {
+            #[inline]
             fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
                 Paren::parse_delimited_meta_item(input, ParseMode::Unnamed)
             }
+            #[inline]
             fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-                let span = input.span();
-                $(let mut $item = None;)+
-                parse_tuple_struct(input, $len, |stream, index| {
-                    match index {
-                        $($index => $item = Some($param::parse_meta_item(stream, ParseMode::Unnamed)?),)+
-                        _ => unreachable!(),
-                    }
-                    Ok(())
-                })?;
-                let span = input.span().join(span).unwrap_or_else(Span::call_site);
-                $(let $item = match $item {
-                    Some(t) => t,
-                    None => return Err(syn::Error::new(
-                        span,
-                        concat!("Expected tuple of length ", $len, ", got ", $index),
-                    )),
-                };)+
-                Ok(($($item,)+))
+                Self::parse_meta_flat_unnamed(&[input], 0)
             }
         }
 
@@ -489,9 +589,23 @@ macro_rules! impl_parse_meta_item_tuple {
             fn field_count() -> Option<usize> {
                 Some($len)
             }
-            #[inline]
-            fn parse_meta_flat_unnamed(input: ParseStream) -> Result<Self> {
-                Self::parse_meta_item_inline(input, ParseMode::Unnamed)
+            fn parse_meta_flat_unnamed(inputs: &[ParseStream], _index: usize) -> Result<Self> {
+                $(let mut $item = None;)+
+                parse_tuple_struct(inputs, $len, |stream, _, index| {
+                    match index {
+                        $($index => $item = Some($param::parse_meta_item(stream, ParseMode::Unnamed)?),)+
+                        _ => unreachable!(),
+                    }
+                    Ok(())
+                })?;
+                $(let $item = match $item {
+                    Some(t) => t,
+                    None => return Err(syn::Error::new(
+                        inputs_span(inputs),
+                        concat!("Expected tuple of length ", $len, ", got ", $index),
+                    )),
+                };)+
+                Ok(($($item,)+))
             }
         }
     };

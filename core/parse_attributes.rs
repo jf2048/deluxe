@@ -2,9 +2,9 @@ use crate::Result;
 use proc_macro2::Span;
 use syn::spanned::Spanned;
 
-pub trait ParseAttributes<T: HasAttributes>: Sized {
+pub trait ParseAttributes<'t, T: HasAttributes>: Sized {
     fn path_matches(path: &syn::Path) -> bool;
-    fn parse_attributes(obj: &T) -> Result<Self>;
+    fn parse_attributes(obj: &'t T) -> Result<Self>;
 }
 
 pub trait ExtractAttributes<T: HasAttributes>: Sized {
@@ -18,9 +18,23 @@ pub trait ExtractAttributes<T: HasAttributes>: Sized {
 pub trait HasAttributes {
     /// Returns an immutable slice of attributes.
     fn attrs(&self) -> &[syn::Attribute];
-    /// Returns a mutable `Vec` of attributes. Returns `None` if the type does not support mutable
+    /// Returns a mutable `Vec` of attributes. Returns `Err` if the type does not support mutable
     /// attributes.
     fn attrs_mut(&mut self) -> Result<&mut Vec<syn::Attribute>>;
+}
+
+impl HasAttributes for syn::Attribute {
+    #[inline]
+    fn attrs(&self) -> &[syn::Attribute] {
+        std::slice::from_ref(self)
+    }
+    #[inline]
+    fn attrs_mut(&mut self) -> Result<&mut Vec<syn::Attribute>> {
+        Err(syn::Error::new(
+            self.span(),
+            "`HasAttributes::attrs_mut()` not supported on single `syn::Attribute`, try moving it into a `Vec<syn::Attribute>`"
+        ))
+    }
 }
 
 impl HasAttributes for [syn::Attribute] {

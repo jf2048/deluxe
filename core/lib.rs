@@ -8,12 +8,12 @@ pub use parse_meta::*;
 pub use util::*;
 
 pub mod from_str {
-    use crate::{Error, Result};
+    use crate::{Error, ParseMode, Result};
     use std::str::FromStr;
     use syn::parse::ParseStream;
 
     #[inline]
-    pub fn parse_meta_item<T: FromStr>(input: ParseStream) -> Result<T>
+    pub fn parse_meta_item<T: FromStr>(input: ParseStream, _mode: ParseMode) -> Result<T>
     where
         T::Err: std::fmt::Display,
     {
@@ -21,11 +21,32 @@ pub mod from_str {
         T::from_str(&s.value()).map_err(|e| Error::new_spanned(s, e.to_string()))
     }
     #[inline]
-    pub fn parse_named_meta_item<T: FromStr>(input: ParseStream) -> Result<T>
+    pub fn parse_meta_item_inline<T: FromStr>(input: ParseStream, _mode: ParseMode) -> Result<T>
     where
         T::Err: std::fmt::Display,
     {
-        let s = crate::parse_helpers::parse_named_meta_item::<syn::LitStr>(input)?;
-        T::from_str(&s.value()).map_err(|e| Error::new_spanned(s, e.to_string()))
+        parse_meta_item(input, _mode)
+    }
+    #[inline]
+    pub fn parse_meta_item_flag<T: Default>(_span: proc_macro2::Span) -> Result<T> {
+        Ok(Default::default())
+    }
+}
+
+pub mod mod_path {
+    use crate::{ParseMode, Result};
+    use syn::parse::ParseStream;
+
+    #[inline]
+    pub fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<syn::Path> {
+        Ok(input.call(syn::Path::parse_mod_style)?)
+    }
+    #[inline]
+    pub fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<syn::Path> {
+        parse_meta_item(input, _mode)
+    }
+    #[inline]
+    pub fn parse_meta_item_flag(span: proc_macro2::Span) -> Result<syn::Path> {
+        Err(crate::parse_helpers::flag_disallowed_error(span))
     }
 }

@@ -1,21 +1,7 @@
 use proc_macro2::TokenStream;
 use syn::parse::{Parse, Parser};
 
-use deluxe_core::{parse_helpers::*, Errors};
-
-macro_rules! bootstrap_parse {
-    (struct $ident:ident { $($(#[$attr:meta])* $arg:ident: $ty:ty)* }) => {
-        struct $ident {
-            $($arg: $ty)*
-        }
-
-        impl deluxe_core::ParseMetaItem for $ident {
-            fn parse_meta_item(input: ParseStream, mode: deluxe_core::ParseMode) -> deluxe_core::Result<Self> {
-                todo!()
-            }
-        }
-    };
-}
+use deluxe_core::Errors;
 
 pub fn parse<T: Parse>(input: TokenStream, errors: &Errors) -> Option<T> {
     match <T as Parse>::parse.parse2(input) {
@@ -42,5 +28,5 @@ pub fn crate_path(errors: &Errors) -> syn::Path {
     };
 
     let ident = syn::Ident::new(&crate_name, proc_macro2::Span::call_site());
-    syn::parse_quote! { #ident }
+    syn::parse_quote! { ::#ident }
 }

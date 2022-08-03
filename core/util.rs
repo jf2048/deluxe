@@ -7,7 +7,7 @@ use std::{
 };
 use syn::spanned::Spanned;
 
-use crate::parse_meta::*;
+use crate::{parse_meta::*, parse_helpers::inputs_span};
 
 pub type Error = syn::Error;
 pub type Result<T> = syn::Result<T>;
@@ -206,26 +206,66 @@ impl<T: ParseMetaItem> ParseMetaItem for SpannedValue<T> {
 }
 
 impl<T: ParseMetaFlatUnnamed> ParseMetaFlatUnnamed for SpannedValue<T> {
+    #[inline]
     fn field_count() -> Option<usize> {
         T::field_count()
     }
-    fn parse_meta_flat_unnamed(input: syn::parse::ParseStream) -> Result<Self> {
-        let span = input.span();
-        let value = T::parse_meta_flat_unnamed(input)?;
-        let span = input.span().join(span).unwrap();
+    fn parse_meta_flat_unnamed(inputs: &[syn::parse::ParseStream], index: usize) -> Result<Self> {
+        let mut span = crate::parse_helpers::inputs_span(inputs);
+        let value = T::parse_meta_flat_unnamed(inputs, index)?;
+        if let Some(closed) = span.join(inputs_span(inputs)) {
+            span = closed;
+        }
         Ok(Self { value, span })
     }
 }
 
 impl<T: ParseMetaFlatNamed> ParseMetaFlatNamed for SpannedValue<T> {
-    fn field_names() -> std::borrow::Cow<'static, [&'static str]> {
+    #[inline]
+    fn field_names() -> &'static [&'static str] {
         T::field_names()
     }
-    fn parse_meta_flat_named(input: syn::parse::ParseStream) -> Result<(Self, Vec<&'static str>)> {
-        let span = input.span();
-        let (value, fields) = T::parse_meta_flat_named(input)?;
-        let span = input.span().join(span).unwrap();
-        Ok((Self { value, span }, fields))
+    fn parse_meta_flat_named(
+        inputs: &[syn::parse::ParseStream],
+        allowed: Option<&[&str]>,
+    ) -> Result<Self> {
+        let mut span = crate::parse_helpers::inputs_span(inputs);
+        let value = T::parse_meta_flat_named(inputs, allowed)?;
+        if let Some(closed) = span.join(inputs_span(inputs)) {
+            span = closed;
+        }
+        Ok(Self { value, span })
+    }
+    #[inline]
+    fn requires_path() -> bool {
+        T::requires_path()
+    }
+    fn parse_meta_flat_for_path(
+        inputs: &[syn::parse::ParseStream],
+        path: &str,
+        allowed: Option<&[&str]>,
+    ) -> Result<Self> {
+        let mut span = inputs_span(inputs);
+        let value = T::parse_meta_flat_for_path(inputs, path, allowed)?;
+        if let Some(closed) = span.join(inputs_span(inputs)) {
+            span = closed;
+        }
+        Ok(Self { value, span })
+    }
+}
+
+impl<T: ParseMetaFlatPrefixed> ParseMetaFlatPrefixed for SpannedValue<T> {
+    fn parse_meta_flat_prefixed(
+        inputs: &[syn::parse::ParseStream],
+        prefix: &str,
+        allowed: Option<&[&str]>,
+    ) -> Result<Self> {
+        let mut span = inputs_span(inputs);
+        let value = T::parse_meta_flat_prefixed(inputs, prefix, allowed)?;
+        if let Some(closed) = span.join(inputs_span(inputs)) {
+            span = closed;
+        }
+        Ok(Self { value, span })
     }
 }
 
