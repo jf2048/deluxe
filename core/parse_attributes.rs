@@ -470,3 +470,74 @@ impl_has_attributes!(syn::TraitItemType);
 impl_has_attributes!(syn::TypeParam);
 impl_has_attributes!(syn::Variadic);
 impl_has_attributes!(syn::Variant);
+
+pub trait ToContainer<'t, T> {
+    fn to_container(&'t self) -> T;
+    fn to_container_mut(&'t mut self) -> T;
+}
+
+impl<'t, T: HasAttributes + Clone> ToContainer<'t, T> for T {
+    #[inline]
+    fn to_container(&'t self) -> T {
+        self.clone()
+    }
+    #[inline]
+    fn to_container_mut(&'t mut self) -> T {
+        self.clone()
+    }
+}
+
+impl<'t, T: HasAttributes + Clone> ToContainer<'t, Option<T>> for T {
+    #[inline]
+    fn to_container(&'t self) -> Option<T> {
+        Some(self.clone())
+    }
+    #[inline]
+    fn to_container_mut(&'t mut self) -> Option<T> {
+        Some(self.clone())
+    }
+}
+
+impl<'t, T: HasAttributes> ToContainer<'t, &'t T> for T {
+    #[inline]
+    fn to_container(&'t self) -> &'t T {
+        self
+    }
+    #[inline]
+    fn to_container_mut(&'t mut self) -> &'t T {
+        self
+    }
+}
+
+impl<'t, T: HasAttributes> ToContainer<'t, Option<&'t T>> for T {
+    #[inline]
+    fn to_container(&'t self) -> Option<&'t T> {
+        Some(self)
+    }
+    #[inline]
+    fn to_container_mut(&'t mut self) -> Option<&'t T> {
+        Some(self)
+    }
+}
+
+impl<'t, T: HasAttributes> ToContainer<'t, &'t mut T> for T {
+    #[inline]
+    fn to_container(&'t self) -> &'t mut T {
+        unimplemented!()
+    }
+    #[inline]
+    fn to_container_mut(&'t mut self) -> &'t mut T {
+        self
+    }
+}
+
+impl<'t, T: HasAttributes> ToContainer<'t, Option<&'t mut T>> for T {
+    #[inline]
+    fn to_container(&'t self) -> Option<&'t mut T> {
+        unimplemented!()
+    }
+    #[inline]
+    fn to_container_mut(&'t mut self) -> Option<&'t mut T> {
+        Some(self)
+    }
+}

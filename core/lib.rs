@@ -2,6 +2,7 @@ mod parse_attributes;
 pub mod parse_helpers;
 mod parse_meta;
 mod util;
+pub mod validations;
 
 pub use parse_attributes::*;
 pub use parse_meta::*;
@@ -48,5 +49,43 @@ pub mod mod_path {
     #[inline]
     pub fn parse_meta_item_flag(span: proc_macro2::Span) -> Result<syn::Path> {
         Err(crate::parse_helpers::flag_disallowed_error(span))
+    }
+}
+
+pub mod mod_path_vec {
+    use crate::{ParseMode, Result};
+    use syn::parse::ParseStream;
+
+    #[repr(transparent)]
+    struct ModPath(syn::Path);
+
+    impl crate::ParseMetaItem for ModPath {
+        #[inline]
+        fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+            Ok(Self(super::mod_path::parse_meta_item(input, _mode)?))
+        }
+    }
+
+    #[inline]
+    pub fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Vec<syn::Path>> {
+        Ok(
+            <Vec<ModPath> as crate::ParseMetaItem>::parse_meta_item(input, _mode)?
+                .into_iter()
+                .map(|p| p.0)
+                .collect(),
+        )
+    }
+    #[inline]
+    pub fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Vec<syn::Path>> {
+        Ok(
+            <Vec<ModPath> as crate::ParseMetaItem>::parse_meta_item_inline(input, _mode)?
+                .into_iter()
+                .map(|p| p.0)
+                .collect(),
+        )
+    }
+    #[inline]
+    pub fn parse_meta_item_flag(_span: proc_macro2::Span) -> Result<Vec<syn::Path>> {
+        Ok(Vec::new())
     }
 }

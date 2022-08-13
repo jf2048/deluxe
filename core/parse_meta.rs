@@ -516,7 +516,12 @@ impl_parse_meta_item_syn!(syn::ExprTuple);
 impl_parse_meta_item_syn!(syn::ExprType);
 impl_parse_meta_item_syn!(syn::FnArg);
 impl_parse_meta_item_syn!(syn::GenericParam);
-impl_parse_meta_item_syn!(syn::Ident);
+impl ParseMetaItem for syn::Ident {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        syn::ext::IdentExt::parse_any(input)
+    }
+}
 impl_parse_meta_item_syn!(syn::Lifetime);
 impl_parse_meta_item_syn!(syn::LifetimeDef);
 impl_parse_meta_item_syn!(syn::Lit);

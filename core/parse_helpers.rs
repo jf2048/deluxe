@@ -233,24 +233,17 @@ pub fn parse_tokens<T, F: FnOnce(ParseStream) -> Result<T>>(
     Ok(ret.unwrap())
 }
 
-pub fn parse_struct_attr_tokens<T, I, F>(
-    inputs: I,
-    func: F,
-) -> Result<()>
+pub fn parse_struct_attr_tokens<T, I, F, R>(inputs: I, func: F) -> Result<R>
 where
     T: quote::ToTokens,
     I: IntoIterator<Item = T>,
-    F: FnMut(&[ParseStream]) -> Result<()>,
+    F: FnMut(&[ParseStream]) -> Result<R>,
 {
-    fn parse_next<T, I, F>(
-        mut iter: I,
-        buffers: Vec<ParseBuffer>,
-        mut func: F,
-    ) -> Result<()>
+    fn parse_next<T, I, F, R>(mut iter: I, buffers: Vec<ParseBuffer>, mut func: F) -> Result<R>
     where
         T: quote::ToTokens,
         I: Iterator<Item = T>,
-        F: FnMut(&[ParseStream]) -> Result<()>,
+        F: FnMut(&[ParseStream]) -> Result<R>,
     {
         if let Some(tokens) = iter.next() {
             let tokens = tokens.into_token_stream();
@@ -262,11 +255,11 @@ where
             })
         } else {
             let streams = buffers.iter().map(|b| b).collect::<Vec<_>>();
-            func(&streams)?;
+            let r = func(&streams)?;
             for buffer in buffers {
                 parse_eof_or_trailing_comma(&buffer)?;
             }
-            Ok(())
+            Ok(r)
         }
     }
     parse_next(inputs.into_iter(), Vec::new(), func)
@@ -301,6 +294,21 @@ pub fn join_paths(prefix: &str, paths: &[&'static str]) -> Vec<&'static str> {
             Cow::Owned(p) => &*Box::leak(p.into_boxed_str()),
         })
         .collect()
+}
+
+pub fn path_matches(path: &syn::Path, segs: &[&str]) -> bool {
+    if path.segments.len() != segs.len() {
+        return false;
+    }
+    for i in 0..segs.len() {
+        if !matches!(path.segments[i].arguments, syn::PathArguments::None) {
+            return false;
+        }
+        if path.segments[i].ident != segs[i] {
+            return false;
+        }
+    }
+    true
 }
 
 #[inline]
@@ -344,10 +352,42 @@ pub fn unknown_error(path: &str, span: Span, fields: &[&str]) -> Error {
 }
 
 #[inline]
-pub fn check_unknown_attribute(path: &str, span: Span, fields: Option<&[&str]>, errors: &Errors) {
+pub fn check_unknown_attribute(path: &str, span: Span, fields: Option<&[&str]>, errors: &Errors) -> bool {
     if let Some(fields) = fields {
         if !fields.contains(&path) {
             errors.push_syn(unknown_error(path, span, fields));
+            return true;
         }
     }
+    false
+}
+
+#[inline]
+pub fn ref_tokens<'t, P, T>(input: &'t T) -> impl Iterator<Item = &TokenStream>
+where
+    P: crate::ParseAttributes<'t, T>,
+    T: crate::HasAttributes,
+{
+    T::attrs(input)
+        .into_iter()
+        .filter_map(|a| P::path_matches(&a.path).then(|| &a.tokens))
+}
+
+#[inline]
+pub fn take_tokens<E, T>(input: &mut T) -> Result<impl Iterator<Item = TokenStream>>
+where
+    E: crate::ExtractAttributes<T>,
+    T: crate::HasAttributes,
+{
+    let attrs = T::attrs_mut(input)?;
+    let mut tokens = Vec::new();
+    let mut index = 0;
+    while index < attrs.len() {
+        if E::path_matches(&attrs[index].path) {
+            tokens.push(attrs.remove(index).tokens);
+        } else {
+            index += 1;
+        }
+    }
+    Ok(tokens.into_iter())
 }

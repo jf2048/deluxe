@@ -12,7 +12,9 @@ use proc_macro::TokenStream;
 pub fn derive_extract_attributes(item: TokenStream) -> TokenStream {
     let errors = Errors::new();
     let mut tokens = util::parse::<syn::DeriveInput>(item.into(), &errors)
-        .map(|input| parse_attributes::impl_parse_attributes(input, &errors, true))
+        .map(|input| {
+            parse_attributes::impl_parse_attributes(input, &errors, parse_attributes::Mode::Extract)
+        })
         .unwrap_or_default();
     tokens.extend(errors.into_compile_errors());
     tokens.into()
@@ -22,7 +24,9 @@ pub fn derive_extract_attributes(item: TokenStream) -> TokenStream {
 pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
     let errors = Errors::new();
     let mut tokens = util::parse::<syn::DeriveInput>(item.into(), &errors)
-        .map(|input| parse_attributes::impl_parse_attributes(input, &errors, false))
+        .map(|input| {
+            parse_attributes::impl_parse_attributes(input, &errors, parse_attributes::Mode::Parse)
+        })
         .unwrap_or_default();
     tokens.extend(errors.into_compile_errors());
     tokens.into()
