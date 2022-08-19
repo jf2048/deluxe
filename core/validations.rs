@@ -3,19 +3,13 @@ use syn::spanned::Spanned;
 
 use crate::Errors;
 
-pub fn only_one<'t, I>(
-    attrs: I,
-    prefix: &str,
-    errors: &Errors,
-)
+pub fn only_one<'t, I>(attrs: I, prefix: &str, errors: &Errors)
 where
     I: IntoIterator<Item = &'t (&'static str, Option<&'t dyn Spanned>)>,
     I::IntoIter: Clone,
 {
     let iter = attrs.into_iter();
-    let present_spans = iter
-        .clone()
-        .filter_map(|f| f.1);
+    let present_spans = iter.clone().filter_map(|f| f.1);
     if present_spans.clone().take(2).count() == 2 {
         let mut names = String::new();
         for (n, _) in iter.clone() {
@@ -40,7 +34,10 @@ macro_rules! _only_one_arg {
         &($name, $value.map(|s| s as &dyn Spanned))
     };
     ($field:ident) => {
-        &(std::stringify!($field), $field.as_ref().map(|s| s as &dyn Spanned))
+        &(
+            std::stringify!($field),
+            $field.as_ref().map(|s| s as &dyn Spanned),
+        )
     };
 }
 

@@ -40,10 +40,7 @@ pub trait ParseMetaFlatUnnamed: Sized {
 
 pub trait ParseMetaFlatNamed: Sized {
     fn field_names() -> &'static [&'static str];
-    fn parse_meta_flat_named(
-        inputs: &[ParseStream],
-        allowed: Option<&[&str]>,
-    ) -> Result<Self>;
+    fn parse_meta_flat_named(inputs: &[ParseStream], allowed: Option<&[&str]>) -> Result<Self>;
     fn requires_path() -> bool {
         false
     }
@@ -177,7 +174,12 @@ impl<T: ParseMetaItem, const N: usize> ParseMetaFlatUnnamed for [T; N] {
         a.into_inner().map_err(|a| {
             syn::Error::new(
                 inputs_span(inputs),
-                format!("Expected array at index {} of length {}, got {}", index, N, a.len()),
+                format!(
+                    "Expected array at index {} of length {}, got {}",
+                    index,
+                    N,
+                    a.len()
+                ),
             )
         })
     }
@@ -239,13 +241,13 @@ macro_rules! impl_parse_meta_item_collection {
                 true
             }
             fn parse_meta_flat_for_path(
-                input: &[ParseStream],
+                inputs: &[ParseStream],
                 path: &str,
                 allowed: Option<&[&str]>,
             ) -> Result<Self> {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
-                parse_struct(input, |input, p, pspan| {
+                parse_struct(inputs.iter().cloned(), |input, p, pspan| {
                     if p == path {
                         let $item = parse_named_meta_item(input)?;
                         $push;
@@ -330,7 +332,7 @@ macro_rules! impl_parse_meta_item_set {
             ) -> Result<Self> {
                 let errors = Errors::new();
                 let mut $ident = Self::new();
-                parse_struct(inputs, |input, p, pspan| {
+                parse_struct(inputs.iter().cloned(), |input, p, pspan| {
                     if p == path {
                         let span = input.span();
                         let $item = parse_named_meta_item(input)?;

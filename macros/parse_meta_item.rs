@@ -1,4 +1,4 @@
-use deluxe_core::{parse_helpers, Errors};
+use deluxe_core::Errors;
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
 use syn::spanned::Spanned;
@@ -26,6 +26,7 @@ fn impl_for_struct(
                 None
             }
         };
+
     let crate_path = struct_attr
         .as_ref()
         .and_then(|s| s.crate_.clone())
@@ -33,76 +34,70 @@ fn impl_for_struct(
     let crate_ = &crate_path;
     let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
     let priv_ = &priv_path;
+
     let fields = struct_attr
         .as_ref()
         .map(|s| s.fields.as_slice())
         .unwrap_or_else(|| &[]);
     let any_flat = fields.iter().any(|f| f.is_flat());
+    let default_set = struct_attr.as_ref().and_then(|s| {
+        s.default.as_ref().map(|d| {
+            let expr = d.to_expr(&syn::parse_quote! { Self }, priv_);
+            quote_spanned! { Span::mixed_site() =>
+                let mut target = #expr;
+            }
+        })
+    });
+    let target = default_set.as_ref().map(|_| syn::parse_quote! { target });
+    let target = target
+        .as_ref()
+        .map(ParseTarget::Var)
+        .unwrap_or_else(|| ParseTarget::Init(None));
+    let transparent = struct_attr
+        .as_ref()
+        .and_then(|s| s.transparent)
+        .unwrap_or(false);
+    let inline_expr = match &struct_.fields {
+        syn::Fields::Named(_) => syn::parse_quote_spanned! { Span::mixed_site() =>
+            <Self as #crate_::ParseMetaFlatNamed>::parse_meta_flat_named(
+                &[input],
+                #priv_::Option::Some(<Self as #crate_::ParseMetaFlatNamed>::field_names()),
+            )
+        },
+        syn::Fields::Unnamed(_) => syn::parse_quote_spanned! { Span::mixed_site() =>
+            <Self as #crate_::ParseMetaFlatUnnamed>::parse_meta_flat_unnamed(&[input], 0)
+        },
+        syn::Fields::Unit => syn::parse_quote_spanned! { Span::mixed_site() =>
+            <Self as #crate_::ParseMetaItem>::parse_meta_item_inline(
+                input, #crate_::ParseMode::Unnamed,
+            )
+        },
+    };
 
     let ItemDef {
         parse,
         inline,
         flag,
-    } = Field::to_parsing_tokens(fields, &struct_.fields, crate_, TokenMode::ParseMetaItem);
+    } = Field::to_parsing_tokens(
+        fields,
+        &struct_.fields,
+        crate_,
+        TokenMode::ParseMetaItem,
+        target,
+        &inline_expr,
+        transparent,
+    );
+
     match &struct_.fields {
         syn::Fields::Named(_) => {
             let struct_ident = &input.ident;
             let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
-            let field_names = if any_flat {
-                let names = fields.iter().map(|f| match &f.flatten {
-                    Some(FieldFlatten {
-                        value: true,
-                        prefix: Some(prefix),
-                        ..
-                    }) => {
-                        let ty = &f.field.ty;
-                        let prefix = parse_helpers::path_to_string(prefix);
-                        quote_spanned! { Span::mixed_site() =>
-                            vec.extend_from_slice(
-                                #priv_::parse_helpers::join_paths(
-                                    #prefix,
-                                    <#ty as #crate_::ParseMetaFlatNamed>::field_names()
-                                ).as_slice()
-                            );
-                        }
-                    }
-                    Some(FieldFlatten {
-                        value: true,
-                        prefix: None,
-                        ..
-                    }) => {
-                        let ty = &f.field.ty;
-                        quote_spanned! { Span::mixed_site() =>
-                            vec.extend_from_slice(<#ty as #crate_::ParseMetaFlatNamed>::field_names());
-                        }
-                    },
-                    _ => {
-                        let names = f.idents.iter().map(|i| i.to_string());
-                        quote_spanned! { Span::mixed_site() =>
-                            #(vec.push(#names);)*
-                        }
-                    }
-                });
-                quote_spanned! { Span::mixed_site() =>
-                    static CELL: #priv_::SyncOnceCell<#priv_::Vec<&'static #priv_::str>> = #priv_::SyncOnceCell::new();
-                    CELL.get_or_init(|| {
-                        let mut vec = #priv_::Vec::new();
-                        #(#names)*
-                        vec
-                    }).as_slice()
-                }
-            } else {
-                let names = fields.iter().map(|f| {
-                    let names = f.idents.iter().map(|i| i.to_string());
-                    quote_spanned! { Span::mixed_site() => #(#names),* }
-                });
-                quote_spanned! { Span::mixed_site() =>
-                    &[#(#names),*]
-                }
-            };
+            let field_names = struct_attr
+                .as_ref()
+                .map(|s| s.to_field_names_tokens(crate_, priv_))
+                .unwrap_or_else(|| quote_spanned! { Span::mixed_site() => &[] });
             (
                 quote_spanned! { Span::mixed_site() =>
-                    #![inline]
                     <#priv_::parse_helpers::Brace as #priv_::parse_helpers::ParseDelimited>::parse_delimited_meta_item(
                         input, #crate_::ParseMode::Named
                     )
@@ -133,6 +128,7 @@ fn impl_for_struct(
                             prefix: &#priv_::str,
                             allowed: #priv_::Option<&[&#priv_::str]>,
                         ) -> #crate_::Result<Self> {
+                            #default_set
                             #parse
                         }
                     }
@@ -157,24 +153,52 @@ fn impl_for_struct(
                     }
                 })
             });
+            let (parse, parse_flat, inline, flag) = if transparent {
+                (
+                    quote_spanned! { Span::mixed_site() =>
+                        #default_set
+                        #parse
+                    },
+                    None,
+                    Some(quote_spanned! { Span::mixed_site() =>
+                        #default_set
+                        #inline
+                    }),
+                    Some(quote_spanned! { Span::mixed_site() =>
+                        #default_set
+                        #flag
+                    }),
+                )
+            } else {
+                (
+                    quote_spanned! { Span::mixed_site() =>
+                        <#priv_::parse_helpers::Paren as #priv_::parse_helpers::ParseDelimited>::parse_delimited_meta_item(
+                            input, #crate_::ParseMode::Unnamed
+                        )
+                    },
+                    Some(quote_spanned! { Span::mixed_site() =>
+                        #default_set
+                        #parse
+                    }),
+                    inline,
+                    flag,
+                )
+            };
             (
-                quote_spanned! { Span::mixed_site() =>
-                    #![inline]
-                    <#priv_::parse_helpers::Paren as #priv_::parse_helpers::ParseDelimited>::parse_delimited_meta_item(
-                        input, #crate_::ParseMode::Unnamed
-                    )
-                },
+                parse,
                 inline,
                 flag,
-                Some(quote_spanned! { Span::mixed_site() =>
-                    impl #impl_generics #crate_::ParseMetaFlatUnnamed for #struct_ident #type_generics #where_clause {
-                        #[inline]
-                        fn field_count() -> #priv_::Option<#priv_::usize> {
-                            #priv_::Option::Some(#field_count #( +  #extra_counts)*)
-                        }
-                        #[inline]
-                        fn parse_meta_flat_unnamed(inputs: &[#priv_::ParseStream], #index_mut index: #priv_::usize) -> #crate_::Result<Self> {
-                            #parse
+                parse_flat.map(|parse_flat| {
+                    quote_spanned! { Span::mixed_site() =>
+                        impl #impl_generics #crate_::ParseMetaFlatUnnamed for #struct_ident #type_generics #where_clause {
+                            #[inline]
+                            fn field_count() -> #priv_::Option<#priv_::usize> {
+                                #priv_::Option::Some(#field_count #( +  #extra_counts)*)
+                            }
+                            #[inline]
+                            fn parse_meta_flat_unnamed(inputs: &[#priv_::ParseStream], #index_mut index: #priv_::usize) -> #crate_::Result<Self> {
+                                #parse_flat
+                            }
                         }
                     }
                 }),
@@ -219,94 +243,24 @@ fn impl_for_enum(
         .unwrap_or_else(|| &[]);
     let enum_ident = &input.ident;
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
-    let any_flat_nested = variants.iter().any(|v| {
-        v.fields
-            .iter()
-            .any(|f| v.flatten.unwrap_or(false) && f.is_flat())
-    });
-    let field_names = variants.iter().flat_map(|v| {
-        // TODO - double check these are working with flattening
-        v.idents
-            .iter()
-            .map(|ident| {
-                let ident = ident.to_string();
-                quote_spanned! { Span::mixed_site() => #ident }
-            })
-            .chain(v.fields.iter().flat_map(|field| {
-                field.idents.iter().filter_map(|ident| {
-                    if !v.flatten.unwrap_or(false) {
-                        return None;
-                    }
-                    match &field.flatten {
-                        Some(FieldFlatten {
-                            value: true,
-                            prefix: Some(prefix),
-                            ..
-                        }) => {
-                            let ty = &field.field.ty;
-                            let prefix = parse_helpers::path_to_string(prefix);
-                            Some(quote_spanned! { Span::mixed_site() =>
-                                vec.extend_from_slice(
-                                    #priv_::parse_helpers::join_paths(
-                                        #prefix,
-                                        <#ty as #crate_::ParseMetaFlatNamed>::field_names()
-                                    ).as_slice()
-                                );
-                            })
-                        }
-                        Some(FieldFlatten {
-                            value: true,
-                            prefix: None,
-                            ..
-                        }) => {
-                            let ty = &field.field.ty;
-                            Some(quote_spanned! { Span::mixed_site() =>
-                                vec.extend_from_slice(<#ty as #crate_::ParseMetaFlatNamed>::field_names());
-                            })
-                        },
-                        _ => {
-                            let ident = ident.to_string();
-                            if any_flat_nested {
-                                Some(quote_spanned! { Span::mixed_site() => vec.push(#ident); })
-                            } else {
-                                Some(quote_spanned! { Span::mixed_site() => #ident })
-                            }
-                        }
-                    }
-                })
-            }))
-    });
-    let field_names = if any_flat_nested {
-        quote_spanned! { Span::mixed_site() =>
-            static CELL: #priv_::SyncOnceCell<#priv_::Vec<&'static #priv_::str>> = #priv_::SyncOnceCell::new();
-            CELL.get_or_init(|| {
-                let mut vec = #priv_::Vec::new();
-                #(#field_names)*
-                vec
-            }).as_slice()
-        }
-    } else {
-        quote_spanned! { Span::mixed_site() =>
-            &[#(#field_names),*]
-        }
-    };
+    let field_names = enum_attr
+        .as_ref()
+        .map(|e| e.to_field_names_tokens(crate_, priv_))
+        .unwrap_or_else(|| quote_spanned! { Span::mixed_site() => &[] });
     let parse = Variant::to_parsing_tokens(variants, crate_, TokenMode::ParseMetaItem);
     (
         quote_spanned! { Span::mixed_site() =>
-            #![inline]
             <#priv_::parse_helpers::Brace as #priv_::parse_helpers::ParseDelimited>::parse_delimited_meta_item(
                 input, #crate_::ParseMode::Named
             )
         },
         Some(quote_spanned! { Span::mixed_site() =>
-            #![inline]
             <Self as #crate_::ParseMetaFlatNamed>::parse_meta_flat_named(
                 &[input],
                 #priv_::Option::Some(<Self as #crate_::ParseMetaFlatNamed>::field_names()),
             )
         }),
         Some(quote_spanned! { Span::mixed_site() =>
-            #![inline]
             #priv_::parse_helpers::parse_empty_meta_item(span, #crate_::ParseMode::Named)
         }),
         Some(quote_spanned! { Span::mixed_site() =>

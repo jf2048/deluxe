@@ -7,7 +7,7 @@ use std::{
 };
 use syn::spanned::Spanned;
 
-use crate::{parse_meta::*, parse_helpers::inputs_span};
+use crate::{parse_helpers::inputs_span, parse_meta::*};
 
 pub type Error = syn::Error;
 pub type Result<T> = syn::Result<T>;

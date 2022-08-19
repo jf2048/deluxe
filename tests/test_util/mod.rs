@@ -6,6 +6,9 @@ pub trait SynErrorExt {
 
 impl SynErrorExt for ::syn::Error {
     fn to_multi_string(&self) -> String {
-        self.into_iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ")
+        self.into_iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }

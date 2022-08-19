@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashSet};
 
 use crate::{Error, Errors, ParseMetaItem, ParseMode, Result};
 use proc_macro2::{Span, TokenStream, TokenTree};
@@ -26,17 +26,26 @@ pub trait ParseDelimited: sealed::Sealed {
     /// Parses a pair of delimiter tokens, and returns a [`syn::ParseBuffer`] for the tokens inside
     /// the delimiter.
     fn parse_delimited(input: ParseStream) -> Result<ParseBuffer>;
-    /// Parse a [`ParseMetaItem`] surrounded by a delimiter. The inner group is allowed to contain
+    /// Parse a stream surrounded by a delimiter. The inner stream is allowed to contain
+    /// a trailing comma.
+    #[inline]
+    fn parse_delimited_with<T, F: FnOnce(ParseStream) -> Result<T>>(
+        input: ParseStream,
+        func: F,
+    ) -> Result<T> {
+        let content = Self::parse_delimited(input)?;
+        let result = func(&content)?;
+        parse_eof_or_trailing_comma(&content)?;
+        Ok(result)
+    }
+    /// Parse a [`ParseMetaItem`] surrounded by a delimiter. The inner stream is allowed to contain
     /// a trailing comma.
     #[inline]
     fn parse_delimited_meta_item<T: ParseMetaItem>(
         input: ParseStream,
         mode: ParseMode,
     ) -> Result<T> {
-        let content = Self::parse_delimited(input)?;
-        let result = T::parse_meta_item_inline(&content, mode)?;
-        parse_eof_or_trailing_comma(&content)?;
-        Ok(result)
+        Self::parse_delimited_with(input, |inner| T::parse_meta_item_inline(inner, mode))
     }
 }
 
@@ -169,11 +178,12 @@ pub fn parse_tuple_struct<F: FnMut(ParseStream, &[ParseStream], usize) -> Result
 }
 
 #[inline]
-pub fn parse_struct<F: FnMut(ParseStream, &str, Span) -> Result<()>>(
-    inputs: &[ParseStream],
-    mut func: F,
-) -> Result<()> {
-    for input in inputs {
+pub fn parse_struct<'i, I, F>(inputs: I, mut func: F) -> Result<()>
+where
+    I: IntoIterator<Item = ParseStream<'i>>,
+    F: FnMut(ParseStream, &str, Span) -> Result<()>,
+{
+    for input in inputs.into_iter() {
         loop {
             if input.is_empty() {
                 break;
@@ -237,13 +247,13 @@ pub fn parse_struct_attr_tokens<T, I, F, R>(inputs: I, func: F) -> Result<R>
 where
     T: quote::ToTokens,
     I: IntoIterator<Item = T>,
-    F: FnMut(&[ParseStream]) -> Result<R>,
+    F: FnMut(&[ParseBuffer]) -> Result<R>,
 {
     fn parse_next<T, I, F, R>(mut iter: I, buffers: Vec<ParseBuffer>, mut func: F) -> Result<R>
     where
         T: quote::ToTokens,
         I: Iterator<Item = T>,
-        F: FnMut(&[ParseStream]) -> Result<R>,
+        F: FnMut(&[ParseBuffer]) -> Result<R>,
     {
         if let Some(tokens) = iter.next() {
             let tokens = tokens.into_token_stream();
@@ -254,8 +264,7 @@ where
                 parse_next(iter, buffers, func)
             })
         } else {
-            let streams = buffers.iter().map(|b| b).collect::<Vec<_>>();
-            let r = func(&streams)?;
+            let r = func(&buffers)?;
             for buffer in buffers {
                 parse_eof_or_trailing_comma(&buffer)?;
             }
@@ -312,6 +321,11 @@ pub fn path_matches(path: &syn::Path, segs: &[&str]) -> bool {
 }
 
 #[inline]
+pub fn has_paths(paths: &HashSet<&str>, keys: &[&[&str]]) -> bool {
+    keys.iter().all(|ks| ks.iter().any(|i| paths.contains(i)))
+}
+
+#[inline]
 pub fn inputs_span<'a>(inputs: impl IntoIterator<Item = &'a ParseStream<'a>>) -> Span {
     let mut iter = inputs.into_iter();
     let first = iter.next();
@@ -352,7 +366,12 @@ pub fn unknown_error(path: &str, span: Span, fields: &[&str]) -> Error {
 }
 
 #[inline]
-pub fn check_unknown_attribute(path: &str, span: Span, fields: Option<&[&str]>, errors: &Errors) -> bool {
+pub fn check_unknown_attribute(
+    path: &str,
+    span: Span,
+    fields: Option<&[&str]>,
+    errors: &Errors,
+) -> bool {
     if let Some(fields) = fields {
         if !fields.contains(&path) {
             errors.push_syn(unknown_error(path, span, fields));
@@ -390,4 +409,66 @@ where
         }
     }
     Ok(tokens.into_iter())
+}
+
+#[inline]
+pub fn ref_inputs<'s>(inputs: &'s [ParseStream<'s>]) -> impl Iterator<Item = ParseStream<'s>> + 's {
+    inputs.into_iter().cloned()
+}
+
+#[inline]
+pub fn fork_inputs<'s>(inputs: &[ParseStream<'s>]) -> Vec<ParseBuffer<'s>> {
+    inputs.into_iter().map(|s| s.fork()).collect()
+}
+
+#[inline]
+pub fn only_one_variant(span: Span, prefix: &str, (va, vb): (&str, &str), errors: &Errors) {
+    errors.push(
+        span,
+        std::format_args!(
+            "expected only one enum variant, got `{}` and `{}`",
+            join_path(prefix, va),
+            join_path(prefix, vb)
+        ),
+    );
+}
+
+#[inline]
+pub fn variant_required(span: Span, prefix: &str, variants: &[&[&[&str]]], errors: &Errors) {
+    errors.push(
+        span,
+        std::format_args!(
+            "expected one of {}",
+            variants
+                .into_iter()
+                .map(|keys| {
+                    if keys.len() == 1 && keys[0].len() == 1 {
+                        format!("`{}`", join_path(prefix, keys[0][0]))
+                    } else {
+                        format!(
+                            "({})",
+                            keys.into_iter()
+                                .map(|idents| {
+                                    if idents.len() == 1 {
+                                        format!("`{}`", join_path(prefix, idents[0]))
+                                    } else {
+                                        format!(
+                                            "[{}]",
+                                            idents
+                                                .into_iter()
+                                                .map(|i| format!("`{}`", join_path(prefix, i)))
+                                                .collect::<Vec<_>>()
+                                                .join(", ")
+                                        )
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    );
 }
