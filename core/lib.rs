@@ -40,7 +40,7 @@ pub mod mod_path {
 
     #[inline]
     pub fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<syn::Path> {
-        Ok(input.call(syn::Path::parse_mod_style)?)
+        input.call(syn::Path::parse_mod_style)
     }
     #[inline]
     pub fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<syn::Path> {

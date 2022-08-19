@@ -9,7 +9,7 @@ use syn::{parse::ParseStream, parse_quote_spanned, spanned::Spanned};
 
 pub enum FieldDefault {
     Default(Span),
-    Expr(syn::Expr),
+    Expr(Box<syn::Expr>),
 }
 
 impl FieldDefault {
@@ -222,7 +222,7 @@ pub struct ItemDef {
     pub flag: Option<TokenStream>,
 }
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum TokenMode {
     ParseMetaItem,
     ParseAttributes,

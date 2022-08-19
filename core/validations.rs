@@ -12,7 +12,7 @@ where
     let present_spans = iter.clone().filter_map(|f| f.1);
     if present_spans.clone().take(2).count() == 2 {
         let mut names = String::new();
-        for (n, _) in iter.clone() {
+        for (n, _) in iter {
             use std::fmt::Write;
             let n = crate::parse_helpers::join_path(prefix, n);
             if names.is_empty() {

@@ -6,7 +6,7 @@ use quote::quote_spanned;
 
 use crate::field::*;
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Mode {
     Parse,
     Extract,
@@ -21,21 +21,23 @@ impl Mode {
     }
 }
 
+struct AttrImpl<'i> {
+    pub parse: TokenStream,
+    pub crate_path: syn::Path,
+    pub priv_path: syn::Path,
+    pub attributes: Vec<syn::Path>,
+    pub container_field: Option<&'i syn::Field>,
+    pub container_lifetime: Option<syn::Lifetime>,
+    pub container_ty: Option<syn::Type>,
+}
+
 #[inline]
 fn impl_for_struct<'i>(
     input: &'i syn::DeriveInput,
     struct_: &syn::DataStruct,
     mode: Mode,
     errors: &Errors,
-) -> (
-    TokenStream,
-    syn::Path,
-    syn::Path,
-    Vec<syn::Path>,
-    Option<&'i syn::Field>,
-    Option<syn::Lifetime>,
-    Option<syn::Type>,
-) {
+) -> AttrImpl<'i> {
     let struct_attr =
         match <Struct as deluxe_core::ParseAttributes<syn::DeriveInput>>::parse_attributes(input) {
             Ok(s) => Some(s),
@@ -102,7 +104,7 @@ fn impl_for_struct<'i>(
         };
         #parse
     };
-    let (container_field, lifetime, ty) = fields
+    let (container_field, container_lifetime, container_ty) = fields
         .iter()
         .find_map(|f| {
             f.container
@@ -110,31 +112,19 @@ fn impl_for_struct<'i>(
                 .map(|c| (Some(f.field), c.lifetime.clone(), c.ty.clone()))
         })
         .unwrap_or_default();
-    (
+    AttrImpl {
         parse,
         crate_path,
         priv_path,
-        struct_attr.map(|s| s.attributes).unwrap_or_default(),
+        attributes: struct_attr.map(|s| s.attributes).unwrap_or_default(),
         container_field,
-        lifetime,
-        ty,
-    )
+        container_lifetime,
+        container_ty,
+    }
 }
 
 #[inline]
-fn impl_for_enum<'i>(
-    input: &'i syn::DeriveInput,
-    mode: Mode,
-    errors: &Errors,
-) -> (
-    TokenStream,
-    syn::Path,
-    syn::Path,
-    Vec<syn::Path>,
-    Option<&'i syn::Field>,
-    Option<syn::Lifetime>,
-    Option<syn::Type>,
-) {
+fn impl_for_enum<'i>(input: &'i syn::DeriveInput, mode: Mode, errors: &Errors) -> AttrImpl<'i> {
     let enum_attr =
         match <Enum as deluxe_core::ParseAttributes<syn::DeriveInput>>::parse_attributes(input) {
             Ok(e) => Some(e),
@@ -164,7 +154,7 @@ fn impl_for_enum<'i>(
         let prefix = "";
         #parse
     };
-    let (container_field, lifetime, ty) = variants
+    let (container_field, container_lifetime, container_ty) = variants
         .iter()
         .find_map(|v| {
             v.fields.iter().find_map(|f| {
@@ -174,36 +164,43 @@ fn impl_for_enum<'i>(
             })
         })
         .unwrap_or_default();
-    (
+    AttrImpl {
         parse,
         crate_path,
         priv_path,
-        enum_attr.map(|s| s.attributes).unwrap_or_default(),
+        attributes: enum_attr.map(|s| s.attributes).unwrap_or_default(),
         container_field,
-        lifetime,
-        ty,
-    )
+        container_lifetime,
+        container_ty,
+    }
 }
 
 pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mode) -> TokenStream {
-    let (parse, crate_, priv_, attributes, container_field, mut container_lifetime, container_ty) =
-        match &input.data {
-            syn::Data::Struct(struct_) => impl_for_struct(&input, struct_, mode, errors),
-            syn::Data::Enum(_) => impl_for_enum(&input, mode, errors),
-            syn::Data::Union(union_) => {
-                errors.push_spanned(
-                    union_.union_token,
-                    "Union not supported with derive(FromAttributes)",
-                );
-                return Default::default();
-            }
-        };
+    let AttrImpl {
+        parse,
+        crate_path: crate_,
+        priv_path: priv_,
+        attributes,
+        container_field,
+        mut container_lifetime,
+        container_ty,
+    } = match &input.data {
+        syn::Data::Struct(struct_) => impl_for_struct(&input, struct_, mode, errors),
+        syn::Data::Enum(_) => impl_for_enum(&input, mode, errors),
+        syn::Data::Union(union_) => {
+            errors.push_spanned(
+                union_.union_token,
+                "Union not supported with derive(FromAttributes)",
+            );
+            return Default::default();
+        }
+    };
 
     let ident = &input.ident;
     let mut generics = input.generics.clone();
 
     let mut container_is_generic = false;
-    let mut container_ty = container_ty.map(|t| Cow::Owned(t));
+    let mut container_ty = container_ty.map(Cow::Owned);
     if container_ty.is_none() || container_lifetime.is_none() {
         if let Some(container_field) = container_field {
             let mut ty = &container_field.ty;

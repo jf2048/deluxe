@@ -258,7 +258,7 @@ where
             let tokens = tokens.into_token_stream();
             parse_tokens(tokens, |stream| {
                 let content = Paren::parse_delimited(stream)?;
-                let mut buffers: Vec<ParseBuffer> = buffers.into();
+                let mut buffers: Vec<ParseBuffer> = buffers;
                 buffers.push(content);
                 parse_next(iter, buffers, func)
             })
@@ -326,11 +326,11 @@ pub fn path_matches(path: &syn::Path, segs: &[&str]) -> bool {
     if path.segments.len() != segs.len() {
         return false;
     }
-    for i in 0..segs.len() {
-        if !matches!(path.segments[i].arguments, syn::PathArguments::None) {
+    for (i, seg) in path.segments.iter().enumerate() {
+        if !matches!(seg.arguments, syn::PathArguments::None) {
             return false;
         }
-        if path.segments[i].ident != segs[i] {
+        if seg.ident != segs[i] {
             return false;
         }
     }
@@ -348,7 +348,7 @@ pub fn inputs_span<'a>(inputs: impl IntoIterator<Item = &'a ParseStream<'a>>) ->
     let first = iter.next();
     if let Some(input) = first {
         let mut span = input.span();
-        while let Some(next) = iter.next() {
+        for next in iter {
             if let Some(joined) = span.join(next.span()) {
                 span = joined;
             }
@@ -405,7 +405,7 @@ where
     T: crate::HasAttributes,
 {
     T::attrs(input)
-        .into_iter()
+        .iter()
         .filter_map(|a| P::path_matches(&a.path).then(|| &a.tokens))
 }
 
@@ -430,12 +430,12 @@ where
 
 #[inline]
 pub fn ref_inputs<'s>(inputs: &'s [ParseStream<'s>]) -> impl Iterator<Item = ParseStream<'s>> + 's {
-    inputs.into_iter().cloned()
+    inputs.iter().cloned()
 }
 
 #[inline]
 pub fn fork_inputs<'s>(inputs: &[ParseStream<'s>]) -> Vec<ParseBuffer<'s>> {
-    inputs.into_iter().map(|s| s.fork()).collect()
+    inputs.iter().map(|s| s.fork()).collect()
 }
 
 #[inline]
@@ -457,14 +457,14 @@ pub fn variant_required(span: Span, prefix: &str, variants: &[&[&[&str]]], error
         std::format_args!(
             "expected one of {}",
             variants
-                .into_iter()
+                .iter()
                 .map(|keys| {
                     if keys.len() == 1 && keys[0].len() == 1 {
                         format!("`{}`", join_path(prefix, keys[0][0]))
                     } else {
                         format!(
                             "({})",
-                            keys.into_iter()
+                            keys.iter()
                                 .map(|idents| {
                                     if idents.len() == 1 {
                                         format!("`{}`", join_path(prefix, idents[0]))
@@ -472,7 +472,7 @@ pub fn variant_required(span: Span, prefix: &str, variants: &[&[&[&str]]], error
                                         format!(
                                             "[{}]",
                                             idents
-                                                .into_iter()
+                                                .iter()
                                                 .map(|i| format!("`{}`", join_path(prefix, i)))
                                                 .collect::<Vec<_>>()
                                                 .join(", ")
