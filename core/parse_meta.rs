@@ -41,17 +41,6 @@ pub trait ParseMetaFlatUnnamed: Sized {
 pub trait ParseMetaFlatNamed: Sized {
     fn field_names() -> &'static [&'static str];
     fn parse_meta_flat_named(inputs: &[ParseStream], allowed: Option<&[&str]>) -> Result<Self>;
-    fn requires_path() -> bool {
-        false
-    }
-    fn parse_meta_flat_for_path(
-        inputs: &[ParseStream],
-        path: &str,
-        allowed: Option<&[&str]>,
-    ) -> Result<Self> {
-        let _ = path;
-        Self::parse_meta_flat_named(inputs, allowed)
-    }
 }
 
 pub trait ParseMetaFlatPrefixed: ParseMetaFlatNamed {
@@ -60,6 +49,18 @@ pub trait ParseMetaFlatPrefixed: ParseMetaFlatNamed {
         prefix: &str,
         allowed: Option<&[&str]>,
     ) -> Result<Self>;
+}
+
+pub trait ParseMetaAppend: Sized {
+    fn parse_meta_append<I, S>(
+        inputs: &[ParseStream],
+        paths: I,
+        allowed: Option<&[&str]>,
+    ) -> Result<Self>
+    where
+        I: IntoIterator<Item = S>,
+        I::IntoIter: Clone,
+        S: AsRef<str>;
 }
 
 macro_rules! impl_parse_meta_item_primitive {
@@ -221,34 +222,22 @@ macro_rules! impl_parse_meta_item_collection {
             }
         }
 
-        impl<$param: ParseMetaItem $(+ $bound $(+ $bounds)*)?> ParseMetaFlatNamed for $ty <$param> {
-            #[inline]
-            fn field_names() -> &'static [&'static str] {
-                &[]
-            }
-            #[inline]
-            fn parse_meta_flat_named(
+        impl<$param: ParseMetaItem $(+ $bound $(+ $bounds)*)?> ParseMetaAppend for $ty <$param> {
+            fn parse_meta_append<I, S>(
                 inputs: &[ParseStream],
-                _allowed: Option<&[&str]>,
-            ) -> Result<Self> {
-                Err(syn::Error::new(
-                    inputs_span(inputs),
-                    concat!("Unable to flatten ", stringify!($ty), " without path"),
-                ))
-            }
-            #[inline]
-            fn requires_path() -> bool {
-                true
-            }
-            fn parse_meta_flat_for_path(
-                inputs: &[ParseStream],
-                path: &str,
+                paths: I,
                 allowed: Option<&[&str]>,
-            ) -> Result<Self> {
+            ) -> Result<Self>
+            where
+                I: IntoIterator<Item = S>,
+                I::IntoIter: Clone,
+                S: AsRef<str>
+            {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
+                let paths = paths.into_iter();
                 parse_struct(inputs.iter().cloned(), |input, p, pspan| {
-                    if p == path {
+                    if paths.clone().any(|path| path.as_ref() == p) {
                         let $item = parse_named_meta_item(input)?;
                         $push;
                     } else {
@@ -306,34 +295,22 @@ macro_rules! impl_parse_meta_item_set {
             }
         }
 
-        impl<$param: ParseMetaItem $(+ $bound $(+ $bounds)*)?> ParseMetaFlatNamed for $ty <$param> {
-            #[inline]
-            fn field_names() -> &'static [&'static str] {
-                &[]
-            }
-            #[inline]
-            fn parse_meta_flat_named(
+        impl<$param: ParseMetaItem $(+ $bound $(+ $bounds)*)?> ParseMetaAppend for $ty <$param> {
+            fn parse_meta_append<I, S>(
                 inputs: &[ParseStream],
-                _allowed: Option<&[&str]>,
-            ) -> Result<Self> {
-                Err(syn::Error::new(
-                    inputs_span(inputs),
-                    concat!("Unable to flatten ", stringify!($ty), " without path"),
-                ))
-            }
-            #[inline]
-            fn requires_path() -> bool {
-                true
-            }
-            fn parse_meta_flat_for_path(
-                inputs: &[ParseStream],
-                path: &str,
+                paths: I,
                 allowed: Option<&[&str]>,
-            ) -> Result<Self> {
+            ) -> Result<Self>
+            where
+                I: IntoIterator<Item = S>,
+                I::IntoIter: Clone,
+                S: AsRef<str>
+            {
                 let errors = Errors::new();
                 let mut $ident = Self::new();
+                let paths = paths.into_iter();
                 parse_struct(inputs.iter().cloned(), |input, p, pspan| {
-                    if p == path {
+                    if paths.clone().any(|path| path.as_ref() == p) {
                         let span = input.span();
                         let $item = parse_named_meta_item(input)?;
                         let span = input.span().join(span).unwrap();

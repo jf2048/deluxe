@@ -146,11 +146,9 @@ fn impl_for_struct(
                 if !f.is_flat() {
                     return None;
                 }
-                f.flatten.as_ref().map(|_| {
-                    let ty = &f.field.ty;
-                    quote_spanned! { ty.span() =>
-                        <#ty as #crate_::ParseMetaFlatUnnamed>::field_count().unwrap_or(0)
-                    }
+                let ty = &f.field.ty;
+                Some(quote_spanned! { ty.span() =>
+                    <#ty as #crate_::ParseMetaFlatUnnamed>::field_count().unwrap_or(0)
                 })
             });
             let (parse, parse_flat, inline, flag) = if transparent {

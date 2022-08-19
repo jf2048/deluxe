@@ -1,7 +1,6 @@
-use std::{borrow::Cow, collections::HashSet};
-
 use crate::{Error, Errors, ParseMetaItem, ParseMode, Result};
 use proc_macro2::{Span, TokenStream, TokenTree};
+use std::{borrow::Cow, collections::HashSet};
 pub use syn::{
     parse::Nothing,
     token::{Brace, Bracket, Paren},
@@ -204,12 +203,12 @@ pub fn skip_named_meta_item(input: ParseStream) {
         .step(|cursor| {
             let mut cur = *cursor;
             while let Some((tt, next)) = cur.token_tree() {
-                cur = next;
                 if let TokenTree::Punct(punct) = tt {
                     if punct.as_char() == ',' {
                         break;
                     }
                 }
+                cur = next;
             }
             Ok(((), cur))
         })
@@ -289,20 +288,38 @@ pub fn path_to_string(path: &syn::Path) -> String {
 pub fn join_path<'path>(prefix: &str, path: &'path str) -> Cow<'path, str> {
     if prefix.is_empty() {
         Cow::Borrowed(path)
+    } else if prefix.ends_with("::") {
+        format!("{}{}", prefix, path).into()
     } else {
         format!("{}::{}", prefix, path).into()
     }
 }
 
 #[inline]
-pub fn join_paths(prefix: &str, paths: &[&'static str]) -> Vec<&'static str> {
-    paths
-        .iter()
-        .map(|p| match join_path(prefix, p) {
-            Cow::Borrowed(p) => p,
-            Cow::Owned(p) => &*Box::leak(p.into_boxed_str()),
-        })
-        .collect()
+pub fn join_prefix(prefix: &str, path: &str) -> String {
+    if prefix.is_empty() {
+        let mut out = path.to_string();
+        out.push_str("::");
+        out
+    } else {
+        let mut out = prefix.to_string();
+        if !prefix.ends_with("::") {
+            out.push_str("::");
+        }
+        out.push_str(path);
+        out.push_str("::");
+        out
+    }
+}
+
+#[inline]
+pub fn join_paths(prefix: &str, paths: &[&'static str]) -> Vec<Cow<'static, str>> {
+    paths.iter().map(|p| join_path(prefix, p)).collect()
+}
+
+#[inline]
+pub fn extend_from_owned<'s>(vec: &mut Vec<&'s str>, owned: &'s [Cow<'s, str>]) {
+    vec.extend(owned.iter().map(|p| p.as_ref()));
 }
 
 pub fn path_matches(path: &syn::Path, segs: &[&str]) -> bool {

@@ -236,17 +236,21 @@ impl<T: ParseMetaFlatNamed> ParseMetaFlatNamed for SpannedValue<T> {
         }
         Ok(Self { value, span })
     }
-    #[inline]
-    fn requires_path() -> bool {
-        T::requires_path()
-    }
-    fn parse_meta_flat_for_path(
+}
+
+impl<T: ParseMetaAppend> ParseMetaAppend for SpannedValue<T> {
+    fn parse_meta_append<I, S>(
         inputs: &[syn::parse::ParseStream],
-        path: &str,
+        paths: I,
         allowed: Option<&[&str]>,
-    ) -> Result<Self> {
+    ) -> Result<Self>
+    where
+        I: IntoIterator<Item = S>,
+        I::IntoIter: Clone,
+        S: AsRef<str>,
+    {
         let mut span = inputs_span(inputs);
-        let value = T::parse_meta_flat_for_path(inputs, path, allowed)?;
+        let value = T::parse_meta_append(inputs, paths, allowed)?;
         if let Some(closed) = span.join(inputs_span(inputs)) {
             span = closed;
         }
