@@ -49,62 +49,53 @@ fn impl_for_struct<'i>(
 
     let crate_path = struct_attr
         .as_ref()
-        .and_then(|s| s.crate_.clone())
-        .unwrap_or_else(|| super::crate_path(errors));
+        .map(|s| {
+            s.crate_
+                .clone()
+                .unwrap_or_else(|| super::crate_path(errors))
+        })
+        .unwrap_or_else(|| super::crate_path(&Errors::new()));
     let crate_ = &crate_path;
     let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
     let priv_ = &priv_path;
 
-    let fields = struct_attr
+    let parse = struct_attr
         .as_ref()
-        .map(|s| s.fields.as_slice())
-        .unwrap_or_else(|| &[]);
-    let default_set = struct_attr.as_ref().and_then(|s| {
-        s.default.as_ref().map(|d| {
-            let expr = d.to_expr(&syn::parse_quote! { Self }, priv_);
+        .map(|s| {
+            let ItemDef { parse, inline, .. } = s.to_parsing_tokens(
+                &struct_.fields,
+                crate_,
+                mode.into_token_mode(),
+                &syn::parse_quote_spanned! { Span::mixed_site() => inline(input) },
+            );
+            let field_names = matches!(struct_.fields, syn::Fields::Named(_))
+                .then(|| {
+                    struct_attr
+                        .as_ref()
+                        .map(|s| s.to_field_names_tokens(crate_, priv_))
+                        .unwrap_or_else(|| quote_spanned! { Span::mixed_site() => &[] })
+                })
+                .into_iter();
             quote_spanned! { Span::mixed_site() =>
-                let mut target = #expr;
+                #(
+                    let allowed = #field_names;
+                    let prefix = "";
+                )*
+                let inline = |input: #priv_::ParseStream<'_>| {
+                    #inline
+                };
+                #parse
             }
         })
-    });
-    let target = default_set.as_ref().map(|_| syn::parse_quote! { target });
-    let target = target
+        .unwrap_or_else(|| {
+            quote_spanned! { Span::mixed_site() =>
+                #priv_::unreachable!()
+            }
+        });
+    let (container_field, container_lifetime, container_ty) = struct_attr
         .as_ref()
-        .map(ParseTarget::Var)
-        .unwrap_or_else(|| ParseTarget::Init(None));
-
-    let ItemDef { parse, inline, .. } = Field::to_parsing_tokens(
-        fields,
-        &struct_.fields,
-        crate_,
-        mode.into_token_mode(),
-        target,
-        &syn::parse_quote_spanned! { Span::mixed_site() => inline(input) },
-        struct_attr
-            .as_ref()
-            .and_then(|s| s.transparent)
-            .unwrap_or(false),
-    );
-    let field_names = matches!(struct_.fields, syn::Fields::Named(_))
-        .then(|| {
-            struct_attr
-                .as_ref()
-                .map(|s| s.to_field_names_tokens(crate_, priv_))
-                .unwrap_or_else(|| quote_spanned! { Span::mixed_site() => &[] })
-        })
-        .into_iter();
-    let parse = quote_spanned! { Span::mixed_site() =>
-        #(
-            let allowed = #field_names;
-            let prefix = "";
-        )*
-        #default_set
-        let inline = |input: #priv_::ParseStream<'_>| {
-            #inline
-        };
-        #parse
-    };
-    let (container_field, container_lifetime, container_ty) = fields
+        .map(|s| s.fields.as_slice())
+        .unwrap_or_default()
         .iter()
         .find_map(|f| {
             f.container
@@ -133,28 +124,40 @@ fn impl_for_enum<'i>(input: &'i syn::DeriveInput, mode: Mode, errors: &Errors) -
                 None
             }
         };
+
     let crate_path = enum_attr
         .as_ref()
-        .and_then(|s| s.crate_.clone())
-        .unwrap_or_else(|| super::crate_path(errors));
+        .map(|s| {
+            s.crate_
+                .clone()
+                .unwrap_or_else(|| super::crate_path(errors))
+        })
+        .unwrap_or_else(|| super::crate_path(&Errors::new()));
     let crate_ = &crate_path;
     let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
     let priv_ = &priv_path;
-    let variants = enum_attr
+
+    let parse = enum_attr
+        .as_ref()
+        .map(|e| {
+            let parse = Variant::to_parsing_tokens(&e.variants, crate_, mode.into_token_mode());
+            let field_names = e.to_field_names_tokens(crate_, priv_);
+            quote_spanned! { Span::mixed_site() =>
+                let allowed = #field_names;
+                let prefix = "";
+                #parse
+            }
+        })
+        .unwrap_or_else(|| {
+            quote_spanned! { Span::mixed_site() =>
+                #priv_::unreachable!()
+            }
+        });
+
+    let (container_field, container_lifetime, container_ty) = enum_attr
         .as_ref()
         .map(|e| e.variants.as_slice())
-        .unwrap_or_else(|| &[]);
-    let parse = Variant::to_parsing_tokens(variants, crate_, mode.into_token_mode());
-    let field_names = enum_attr
-        .as_ref()
-        .map(|e| e.to_field_names_tokens(crate_, priv_))
-        .unwrap_or_else(|| quote_spanned! { Span::mixed_site() => &[] });
-    let parse = quote_spanned! { Span::mixed_site() =>
-        let allowed = #field_names;
-        let prefix = "";
-        #parse
-    };
-    let (container_field, container_lifetime, container_ty) = variants
+        .unwrap_or_default()
         .iter()
         .find_map(|v| {
             v.fields.iter().find_map(|f| {
