@@ -5,19 +5,21 @@ use syn::spanned::Spanned;
 
 use crate::field::*;
 
+struct MetaDef {
+    pub parse: TokenStream,
+    pub inline: Option<TokenStream>,
+    pub flag: Option<TokenStream>,
+    pub extra: Option<TokenStream>,
+    pub crate_path: syn::Path,
+    pub priv_path: syn::Path,
+}
+
 #[inline]
 fn impl_for_struct(
     input: &syn::DeriveInput,
     struct_: &syn::DataStruct,
     errors: &Errors,
-) -> (
-    TokenStream,
-    Option<TokenStream>,
-    Option<TokenStream>,
-    Option<TokenStream>,
-    syn::Path,
-    syn::Path,
-) {
+) -> Option<MetaDef> {
     let struct_attr =
         match <Struct as deluxe_core::ParseAttributes<syn::DeriveInput>>::parse_attributes(input) {
             Ok(s) => Some(s),
@@ -27,14 +29,7 @@ fn impl_for_struct(
             }
         };
 
-    let crate_path = struct_attr
-        .as_ref()
-        .map(|s| {
-            s.crate_
-                .clone()
-                .unwrap_or_else(|| super::crate_path(errors))
-        })
-        .unwrap_or_else(|| super::crate_path(&Errors::new()));
+    let crate_path = super::get_crate_path(struct_attr.as_ref().map(|s| s.crate_.clone()), errors)?;
     let crate_ = &crate_path;
     let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
     let priv_ = &priv_path;
@@ -123,15 +118,15 @@ fn impl_for_struct(
         (fail.clone(), Some(fail.clone()), Some(fail.clone()), Some(fail.clone()), Some(fail))
     });
 
-    match &struct_.fields {
+    Some(match &struct_.fields {
         syn::Fields::Named(_) => {
             let struct_ident = &input.ident;
             let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
-            (
+            MetaDef {
                 parse,
                 inline,
                 flag,
-                Some(quote_spanned! { Span::mixed_site() =>
+                extra: Some(quote_spanned! { Span::mixed_site() =>
                     impl #impl_generics #crate_::ParseMetaFlatNamed for #struct_ident #type_generics #where_clause {
                         #[inline]
                         fn field_names() -> &'static [&'static #priv_::str] {
@@ -161,17 +156,17 @@ fn impl_for_struct(
                 }),
                 crate_path,
                 priv_path,
-            )
+            }
         }
         syn::Fields::Unnamed(_) => {
             let struct_ident = &input.ident;
             let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
             let index_mut = any_flat.then(|| quote! { mut });
-            (
+            MetaDef {
                 parse,
                 inline,
                 flag,
-                parse_flat.map(|parse_flat| {
+                extra: parse_flat.map(|parse_flat| {
                     quote_spanned! { Span::mixed_site() =>
                         impl #impl_generics #crate_::ParseMetaFlatUnnamed for #struct_ident #type_generics #where_clause {
                             #[inline]
@@ -187,24 +182,21 @@ fn impl_for_struct(
                 }),
                 crate_path,
                 priv_path,
-            )
+            }
         }
-        _ => (parse, inline, flag, None, crate_path, priv_path),
-    }
+        _ => MetaDef {
+            parse,
+            inline,
+            flag,
+            extra: None,
+            crate_path,
+            priv_path,
+        },
+    })
 }
 
 #[inline]
-fn impl_for_enum(
-    input: &syn::DeriveInput,
-    errors: &Errors,
-) -> (
-    TokenStream,
-    Option<TokenStream>,
-    Option<TokenStream>,
-    Option<TokenStream>,
-    syn::Path,
-    syn::Path,
-) {
+fn impl_for_enum(input: &syn::DeriveInput, errors: &Errors) -> Option<MetaDef> {
     let enum_attr =
         match <Enum as deluxe_core::ParseAttributes<syn::DeriveInput>>::parse_attributes(input) {
             Ok(e) => Some(e),
@@ -213,14 +205,8 @@ fn impl_for_enum(
                 None
             }
         };
-    let crate_path = enum_attr
-        .as_ref()
-        .map(|s| {
-            s.crate_
-                .clone()
-                .unwrap_or_else(|| super::crate_path(errors))
-        })
-        .unwrap_or_else(|| super::crate_path(&Errors::new()));
+
+    let crate_path = super::get_crate_path(enum_attr.as_ref().map(|e| e.crate_.clone()), errors)?;
     let crate_ = &crate_path;
     let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
     let priv_ = &priv_path;
@@ -241,22 +227,22 @@ fn impl_for_enum(
             };
             (fail.clone(), fail)
         });
-    (
-        quote_spanned! { Span::mixed_site() =>
+    Some(MetaDef {
+        parse: quote_spanned! { Span::mixed_site() =>
             <#priv_::parse_helpers::Brace as #priv_::parse_helpers::ParseDelimited>::parse_delimited_meta_item(
                 input, #crate_::ParseMode::Named
             )
         },
-        Some(quote_spanned! { Span::mixed_site() =>
+        inline: Some(quote_spanned! { Span::mixed_site() =>
             <Self as #crate_::ParseMetaFlatNamed>::parse_meta_flat_named(
                 &[input],
                 #priv_::Option::Some(<Self as #crate_::ParseMetaFlatNamed>::field_names()),
             )
         }),
-        Some(quote_spanned! { Span::mixed_site() =>
+        flag: Some(quote_spanned! { Span::mixed_site() =>
             #priv_::parse_helpers::parse_empty_meta_item(span, #crate_::ParseMode::Named)
         }),
-        Some(quote_spanned! { Span::mixed_site() =>
+        extra: Some(quote_spanned! { Span::mixed_site() =>
             impl #impl_generics #crate_::ParseMetaFlatNamed for #enum_ident #type_generics #where_clause {
                 #[inline]
                 fn field_names() -> &'static [&'static #priv_::str] {
@@ -286,11 +272,11 @@ fn impl_for_enum(
         }),
         crate_path,
         priv_path,
-    )
+    })
 }
 
 pub fn impl_parse_meta_item(input: syn::DeriveInput, errors: &Errors) -> TokenStream {
-    let (parse, inline, flag, extra, crate_, priv_) = match &input.data {
+    let meta = match &input.data {
         syn::Data::Struct(struct_) => impl_for_struct(&input, struct_, errors),
         syn::Data::Enum(_) => impl_for_enum(&input, errors),
         syn::Data::Union(union) => {
@@ -300,6 +286,17 @@ pub fn impl_parse_meta_item(input: syn::DeriveInput, errors: &Errors) -> TokenSt
             );
             return Default::default();
         }
+    };
+    let MetaDef {
+        parse,
+        inline,
+        flag,
+        extra,
+        crate_path: crate_,
+        priv_path: priv_,
+    } = match meta {
+        Some(m) => m,
+        None => return Default::default(),
     };
 
     let ident = &input.ident;

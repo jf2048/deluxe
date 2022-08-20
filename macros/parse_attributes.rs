@@ -37,7 +37,7 @@ fn impl_for_struct<'i>(
     struct_: &syn::DataStruct,
     mode: Mode,
     errors: &Errors,
-) -> AttrImpl<'i> {
+) -> Option<AttrImpl<'i>> {
     let struct_attr =
         match <Struct as deluxe_core::ParseAttributes<syn::DeriveInput>>::parse_attributes(input) {
             Ok(s) => Some(s),
@@ -47,14 +47,7 @@ fn impl_for_struct<'i>(
             }
         };
 
-    let crate_path = struct_attr
-        .as_ref()
-        .map(|s| {
-            s.crate_
-                .clone()
-                .unwrap_or_else(|| super::crate_path(errors))
-        })
-        .unwrap_or_else(|| super::crate_path(&Errors::new()));
+    let crate_path = super::get_crate_path(struct_attr.as_ref().map(|s| s.crate_.clone()), errors)?;
     let crate_ = &crate_path;
     let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
     let priv_ = &priv_path;
@@ -103,7 +96,7 @@ fn impl_for_struct<'i>(
                 .map(|c| (Some(f.field), c.lifetime.clone(), c.ty.clone()))
         })
         .unwrap_or_default();
-    AttrImpl {
+    Some(AttrImpl {
         parse,
         crate_path,
         priv_path,
@@ -111,11 +104,15 @@ fn impl_for_struct<'i>(
         container_field,
         container_lifetime,
         container_ty,
-    }
+    })
 }
 
 #[inline]
-fn impl_for_enum<'i>(input: &'i syn::DeriveInput, mode: Mode, errors: &Errors) -> AttrImpl<'i> {
+fn impl_for_enum<'i>(
+    input: &'i syn::DeriveInput,
+    mode: Mode,
+    errors: &Errors,
+) -> Option<AttrImpl<'i>> {
     let enum_attr =
         match <Enum as deluxe_core::ParseAttributes<syn::DeriveInput>>::parse_attributes(input) {
             Ok(e) => Some(e),
@@ -125,14 +122,7 @@ fn impl_for_enum<'i>(input: &'i syn::DeriveInput, mode: Mode, errors: &Errors) -
             }
         };
 
-    let crate_path = enum_attr
-        .as_ref()
-        .map(|s| {
-            s.crate_
-                .clone()
-                .unwrap_or_else(|| super::crate_path(errors))
-        })
-        .unwrap_or_else(|| super::crate_path(&Errors::new()));
+    let crate_path = super::get_crate_path(enum_attr.as_ref().map(|e| e.crate_.clone()), errors)?;
     let crate_ = &crate_path;
     let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
     let priv_ = &priv_path;
@@ -167,7 +157,7 @@ fn impl_for_enum<'i>(input: &'i syn::DeriveInput, mode: Mode, errors: &Errors) -
             })
         })
         .unwrap_or_default();
-    AttrImpl {
+    Some(AttrImpl {
         parse,
         crate_path,
         priv_path,
@@ -175,10 +165,24 @@ fn impl_for_enum<'i>(input: &'i syn::DeriveInput, mode: Mode, errors: &Errors) -
         container_field,
         container_lifetime,
         container_ty,
-    }
+    })
 }
 
 pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mode) -> TokenStream {
+    let attr = match &input.data {
+        syn::Data::Struct(struct_) => impl_for_struct(&input, struct_, mode, errors),
+        syn::Data::Enum(_) => impl_for_enum(&input, mode, errors),
+        syn::Data::Union(union_) => {
+            errors.push_spanned(
+                union_.union_token,
+                match mode {
+                    Mode::Parse => "Union not supported with derive(ParseAttributes)",
+                    Mode::Extract => "Union not supported with derive(ExtractAttributes)",
+                },
+            );
+            return Default::default();
+        }
+    };
     let AttrImpl {
         parse,
         crate_path: crate_,
@@ -187,16 +191,9 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
         container_field,
         mut container_lifetime,
         container_ty,
-    } = match &input.data {
-        syn::Data::Struct(struct_) => impl_for_struct(&input, struct_, mode, errors),
-        syn::Data::Enum(_) => impl_for_enum(&input, mode, errors),
-        syn::Data::Union(union_) => {
-            errors.push_spanned(
-                union_.union_token,
-                "Union not supported with derive(FromAttributes)",
-            );
-            return Default::default();
-        }
+    } = match attr {
+        Some(a) => a,
+        None => return Default::default(),
     };
 
     let ident = &input.ident;

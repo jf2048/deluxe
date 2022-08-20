@@ -13,8 +13,7 @@ pub fn parse<T: Parse>(input: TokenStream, errors: &Errors) -> Option<T> {
     }
 }
 
-#[inline]
-pub fn crate_path(errors: &Errors) -> syn::Path {
+fn crate_path(errors: Option<&Errors>) -> Option<syn::Path> {
     use proc_macro_crate::FoundCrate;
     const CRATE_NAME: &str = "deluxe";
 
@@ -22,11 +21,22 @@ pub fn crate_path(errors: &Errors) -> syn::Path {
         Ok(FoundCrate::Name(name)) => name,
         Ok(FoundCrate::Itself) => CRATE_NAME.into(),
         Err(e) => {
-            errors.push(proc_macro2::Span::call_site(), e.to_string());
-            CRATE_NAME.into()
+            if let Some(errors) = errors {
+                errors.push(proc_macro2::Span::call_site(), e.to_string());
+            }
+            return None;
         }
     };
 
     let ident = syn::Ident::new(&crate_name, proc_macro2::Span::call_site());
-    syn::parse_quote! { ::#ident }
+    Some(syn::parse_quote! { ::#ident })
+}
+
+#[inline]
+pub fn get_crate_path(path: Option<Option<syn::Path>>, errors: &Errors) -> Option<syn::Path> {
+    match path {
+        Some(Some(path)) => Some(path),
+        Some(None) => crate_path(Some(errors)),
+        None => crate_path(None),
+    }
 }
