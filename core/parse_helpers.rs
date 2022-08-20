@@ -140,7 +140,7 @@ where
 
 #[macro_export]
 macro_rules! parse_named_meta_item_with {
-    ($input:ident, $p:ident $(::$ps:ident)*) => {
+    ($input:expr, $p:ident $(::$ps:ident)*) => {
         $crate::parse_helpers::parse_named_meta_item_with(
             $input,
             $p $(::$ps)* :: parse_meta_item,
@@ -216,10 +216,7 @@ pub fn skip_named_meta_item(input: ParseStream) {
 }
 
 #[inline]
-pub fn parse_tokens<T, F: FnOnce(ParseStream) -> Result<T>>(
-    input: TokenStream,
-    func: F,
-) -> Result<T> {
+fn parse_tokens<T, F: FnOnce(ParseStream) -> Result<T>>(input: TokenStream, func: F) -> Result<T> {
     let errors = Errors::new();
     let mut ret = None;
     syn::parse::Parser::parse2(
@@ -246,13 +243,13 @@ pub fn parse_struct_attr_tokens<T, I, F, R>(inputs: I, func: F) -> Result<R>
 where
     T: quote::ToTokens,
     I: IntoIterator<Item = T>,
-    F: FnMut(&[ParseBuffer]) -> Result<R>,
+    F: FnOnce(&[ParseBuffer]) -> Result<R>,
 {
-    fn parse_next<T, I, F, R>(mut iter: I, buffers: Vec<ParseBuffer>, mut func: F) -> Result<R>
+    fn parse_next<T, I, F, R>(mut iter: I, buffers: Vec<ParseBuffer>, func: F) -> Result<R>
     where
         T: quote::ToTokens,
         I: Iterator<Item = T>,
-        F: FnMut(&[ParseBuffer]) -> Result<R>,
+        F: FnOnce(&[ParseBuffer]) -> Result<R>,
     {
         if let Some(tokens) = iter.next() {
             let tokens = tokens.into_token_stream();
@@ -452,29 +449,17 @@ pub fn variant_required(span: Span, prefix: &str, variants: &[&[&[&str]]], error
             variants
                 .iter()
                 .map(|keys| {
-                    if keys.len() == 1 && keys[0].len() == 1 {
-                        format!("`{}`", join_path(prefix, keys[0][0]))
+                    let mut iter = keys.iter().map(|idents| {
+                        idents
+                            .iter()
+                            .map(|i| format!("`{}`", join_path(prefix, i)))
+                            .collect::<Vec<_>>()
+                            .join("|")
+                    });
+                    if keys.len() == 1 {
+                        iter.next().unwrap()
                     } else {
-                        format!(
-                            "({})",
-                            keys.iter()
-                                .map(|idents| {
-                                    if idents.len() == 1 {
-                                        format!("`{}`", join_path(prefix, idents[0]))
-                                    } else {
-                                        format!(
-                                            "[{}]",
-                                            idents
-                                                .iter()
-                                                .map(|i| format!("`{}`", join_path(prefix, i)))
-                                                .collect::<Vec<_>>()
-                                                .join(", ")
-                                        )
-                                    }
-                                })
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        )
+                        format!("({})", iter.collect::<Vec<_>>().join(", "))
                     }
                 })
                 .collect::<Vec<_>>()

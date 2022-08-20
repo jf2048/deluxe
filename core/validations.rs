@@ -1,4 +1,3 @@
-use proc_macro2::Span;
 use syn::spanned::Spanned;
 
 use crate::Errors;
@@ -46,18 +45,4 @@ macro_rules! only_one {
     ($prefix:expr, $errors:expr $(, $fields:tt)* $(,)?) => {
         $crate::validations::only_one([$($crate::_only_one_arg!($fields)),*], $prefix, $errors)
     };
-}
-
-pub fn only_one_variant(span: Span, prefix: &str, variants: &[&str], errors: &Errors) {
-    let mut names = String::new();
-    for n in variants {
-        use std::fmt::Write;
-        let n = crate::parse_helpers::join_path(prefix, n);
-        if names.is_empty() {
-            write!(names, "`{}`", n).unwrap();
-        } else {
-            write!(names, ", `{}`", n).unwrap();
-        }
-    }
-    errors.push(span, format_args!("only one of {} is allowed", names));
 }

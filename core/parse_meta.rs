@@ -53,7 +53,7 @@ pub trait ParseMetaAppend: Sized {
 }
 
 pub trait ParseMetaRest: Sized {
-    fn parse_meta_rest(inputs: &[ParseStream]) -> Result<Self>;
+    fn parse_meta_rest(inputs: &[ParseStream], exclude: &[&str]) -> Result<Self>;
 }
 
 macro_rules! impl_parse_meta_item_primitive {
@@ -78,6 +78,7 @@ impl_parse_meta_item_primitive!(i16, syn::LitInt, base10_parse);
 impl_parse_meta_item_primitive!(i32, syn::LitInt, base10_parse);
 impl_parse_meta_item_primitive!(i64, syn::LitInt, base10_parse);
 impl_parse_meta_item_primitive!(i128, syn::LitInt, base10_parse);
+impl_parse_meta_item_primitive!(isize, syn::LitInt, base10_parse);
 
 impl ParseMetaItem for u8 {
     #[inline]
@@ -97,6 +98,8 @@ impl_parse_meta_item_primitive!(u16, syn::LitInt, base10_parse);
 impl_parse_meta_item_primitive!(u32, syn::LitInt, base10_parse);
 impl_parse_meta_item_primitive!(u64, syn::LitInt, base10_parse);
 impl_parse_meta_item_primitive!(u128, syn::LitInt, base10_parse);
+impl_parse_meta_item_primitive!(usize, syn::LitInt, base10_parse);
+
 impl_parse_meta_item_primitive!(f32, syn::LitFloat, base10_parse);
 impl_parse_meta_item_primitive!(f64, syn::LitFloat, base10_parse);
 
@@ -331,13 +334,32 @@ macro_rules! impl_parse_meta_item_map {
             }
             #[inline]
             fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-                Self::parse_meta_rest(&[input])
+                let mut $ident = Self::new();
+                let errors = Errors::new();
+                loop {
+                    if input.is_empty() {
+                        break;
+                    }
+                    let span = input.span();
+                    let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
+                    let span = input.span().join(span).unwrap();
+                    let $value = parse_named_meta_item(input)?;
+                    if !$push {
+                        errors.push(span, "Duplicate key");
+                    }
+                    if !input.is_empty() {
+                        input.parse::<Token![,]>()?;
+                    }
+                }
+                errors.check()?;
+                Ok($ident)
             }
         }
 
-        impl<$kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)?, $vp: ParseMetaItem> ParseMetaRest for $ty <$kp, $vp> {
+        impl<$kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)? + AsRef<syn::Path>, $vp: ParseMetaItem> ParseMetaRest for $ty <$kp, $vp> {
             fn parse_meta_rest(
                 inputs: &[ParseStream],
+                exclude: &[&str],
             ) -> Result<Self> {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
@@ -348,10 +370,14 @@ macro_rules! impl_parse_meta_item_map {
                         }
                         let span = input.span();
                         let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
-                        let span = input.span().join(span).unwrap();
-                        let $value = parse_named_meta_item(input)?;
-                        if !$push {
-                            errors.push(span, "Duplicate key");
+                        if exclude.contains(&path_to_string($key.as_ref()).as_str()) {
+                            skip_named_meta_item(input);
+                        } else {
+                            let span = input.span().join(span).unwrap();
+                            let $value = parse_named_meta_item(input)?;
+                            if !$push {
+                                errors.push(span, "Duplicate key");
+                            }
                         }
                         if !input.is_empty() {
                             input.parse::<Token![,]>()?;
@@ -435,6 +461,36 @@ impl<T: ParseMetaItem, P: Parse + Default> ParseMetaFlatUnnamed for Punctuated<T
             }
         }
         Ok(p)
+    }
+}
+
+impl<T: ParseMetaItem, P: Parse + Default> ParseMetaAppend for Punctuated<T, P> {
+    fn parse_meta_append<I, S>(inputs: &[ParseStream], paths: I) -> Result<Self>
+    where
+        I: IntoIterator<Item = S>,
+        I::IntoIter: Clone,
+        S: AsRef<str>,
+    {
+        let mut punct = Punctuated::new();
+        let paths = paths.into_iter();
+        for input in inputs {
+            loop {
+                if input.is_empty() {
+                    break;
+                }
+                let path = input.call(syn::Path::parse_mod_style)?;
+                let p = path_to_string(&path);
+                if paths.clone().any(|path| path.as_ref() == p.as_str()) {
+                    punct.push(T::parse_meta_item(input, ParseMode::Unnamed)?);
+                } else {
+                    skip_named_meta_item(input);
+                }
+                if !input.is_empty() {
+                    input.parse::<P>()?;
+                }
+            }
+        }
+        Ok(punct)
     }
 }
 

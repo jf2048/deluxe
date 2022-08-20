@@ -257,9 +257,9 @@ impl<T: ParseMetaAppend> ParseMetaAppend for SpannedValue<T> {
 }
 
 impl<T: ParseMetaRest> ParseMetaRest for SpannedValue<T> {
-    fn parse_meta_rest(inputs: &[syn::parse::ParseStream]) -> Result<Self> {
+    fn parse_meta_rest(inputs: &[syn::parse::ParseStream], exclude: &[&str]) -> Result<Self> {
         let mut span = inputs_span(inputs);
-        let value = T::parse_meta_rest(inputs)?;
+        let value = T::parse_meta_rest(inputs, exclude)?;
         if let Some(closed) = span.join(inputs_span(inputs)) {
             span = closed;
         }
