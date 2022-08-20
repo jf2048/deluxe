@@ -44,7 +44,8 @@ fn impl_for_struct(
             syn::Fields::Named(_) => syn::parse_quote_spanned! { Span::mixed_site() =>
                 <Self as #crate_::ParseMetaFlatNamed>::parse_meta_flat_named(
                     &[input],
-                    #priv_::Option::Some(<Self as #crate_::ParseMetaFlatNamed>::field_names()),
+                    "",
+                    true,
                 )
             },
             syn::Fields::Unnamed(_) => syn::parse_quote_spanned! { Span::mixed_site() =>
@@ -66,6 +67,9 @@ fn impl_for_struct(
             crate_,
             TokenMode::ParseMetaItem,
             &inline_expr,
+            &syn::parse_quote_spanned! { Span::mixed_site() =>
+                <Self as #crate_::ParseMetaFlatNamed>::field_names()
+            },
         );
         match &struct_.fields {
             syn::Fields::Named(_) => (
@@ -122,12 +126,35 @@ fn impl_for_struct(
         syn::Fields::Named(_) => {
             let struct_ident = &input.ident;
             let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
+
+            let accepts_all = struct_attr
+                .as_ref()
+                .and_then(|s| {
+                    if s.fields.iter().any(|f| f.rest.map(|v| *v).unwrap_or(false)) {
+                        return Some(quote_spanned! { Span::mixed_site() => true });
+                    }
+                    let mut flat_tys = s
+                        .fields
+                        .iter()
+                        .filter(|f| f.flatten.as_ref().map(|f| f.value).unwrap_or(false))
+                        .map(|f| &f.field.ty)
+                        .peekable();
+                    if flat_tys.peek().is_some() {
+                        return Some(quote_spanned! { Span::mixed_site() =>
+                            #(<#flat_tys as #crate_::ParseMetaFlatNamed>::ACCEPTS_ALL)||*
+                        });
+                    }
+                    None
+                })
+                .into_iter();
+
             MetaDef {
                 parse,
                 inline,
                 flag,
                 extra: Some(quote_spanned! { Span::mixed_site() =>
                     impl #impl_generics #crate_::ParseMetaFlatNamed for #struct_ident #type_generics #where_clause {
+                        #(const ACCEPTS_ALL: #priv_::bool = #accepts_all;)*
                         #[inline]
                         fn field_names() -> &'static [&'static #priv_::str] {
                             #field_names
@@ -135,20 +162,8 @@ fn impl_for_struct(
                         #[inline]
                         fn parse_meta_flat_named(
                             inputs: &[#priv_::ParseStream],
-                            allowed: #priv_::Option<&[&#priv_::str]>,
-                        ) -> #crate_::Result<Self> {
-                            <Self as #crate_::ParseMetaFlatPrefixed>::parse_meta_flat_prefixed(
-                                inputs,
-                                "",
-                                allowed,
-                            )
-                        }
-                    }
-                    impl #impl_generics #crate_::ParseMetaFlatPrefixed for #struct_ident #type_generics #where_clause {
-                        fn parse_meta_flat_prefixed(
-                            inputs: &[#priv_::ParseStream],
                             prefix: &#priv_::str,
-                            allowed: #priv_::Option<&[&#priv_::str]>,
+                            validate: #priv_::bool,
                         ) -> #crate_::Result<Self> {
                             #parse_flat
                         }
@@ -217,7 +232,7 @@ fn impl_for_enum(input: &syn::DeriveInput, errors: &Errors) -> Option<MetaDef> {
         .as_ref()
         .map(|e| {
             (
-                Variant::to_parsing_tokens(&e.variants, crate_, TokenMode::ParseMetaItem),
+                e.to_parsing_tokens(crate_, TokenMode::ParseMetaItem),
                 e.to_field_names_tokens(crate_, priv_),
             )
         })
@@ -236,7 +251,8 @@ fn impl_for_enum(input: &syn::DeriveInput, errors: &Errors) -> Option<MetaDef> {
         inline: Some(quote_spanned! { Span::mixed_site() =>
             <Self as #crate_::ParseMetaFlatNamed>::parse_meta_flat_named(
                 &[input],
-                #priv_::Option::Some(<Self as #crate_::ParseMetaFlatNamed>::field_names()),
+                <Self as #crate_::ParseMetaFlatNamed>::field_names(),
+                true,
             )
         }),
         flag: Some(quote_spanned! { Span::mixed_site() =>
@@ -251,20 +267,8 @@ fn impl_for_enum(input: &syn::DeriveInput, errors: &Errors) -> Option<MetaDef> {
                 #[inline]
                 fn parse_meta_flat_named(
                     inputs: &[#priv_::ParseStream],
-                    allowed: #priv_::Option<&[&#priv_::str]>,
-                ) -> #crate_::Result<Self> {
-                    <Self as #crate_::ParseMetaFlatPrefixed>::parse_meta_flat_prefixed(
-                        inputs,
-                        "",
-                        allowed,
-                    )
-                }
-            }
-            impl #impl_generics #crate_::ParseMetaFlatPrefixed for #enum_ident #type_generics #where_clause {
-                fn parse_meta_flat_prefixed(
-                    inputs: &[#priv_::ParseStream],
                     prefix: &#priv_::str,
-                    allowed: #priv_::Option<&[&#priv_::str]>,
+                    validate: #priv_::bool,
                 ) -> #crate_::Result<Self> {
                     #parse
                 }

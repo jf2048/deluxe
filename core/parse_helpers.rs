@@ -383,17 +383,10 @@ pub fn unknown_error(path: &str, span: Span, fields: &[&str]) -> Error {
 }
 
 #[inline]
-pub fn check_unknown_attribute(
-    path: &str,
-    span: Span,
-    fields: Option<&[&str]>,
-    errors: &Errors,
-) -> bool {
-    if let Some(fields) = fields {
-        if !fields.contains(&path) {
-            errors.push_syn(unknown_error(path, span, fields));
-            return true;
-        }
+pub fn check_unknown_attribute(path: &str, span: Span, fields: &[&str], errors: &Errors) -> bool {
+    if !fields.contains(&path) {
+        errors.push_syn(unknown_error(path, span, fields));
+        return true;
     }
     false
 }

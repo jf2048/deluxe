@@ -60,6 +60,7 @@ fn impl_for_struct<'i>(
                 crate_,
                 mode.into_token_mode(),
                 &syn::parse_quote_spanned! { Span::mixed_site() => inline(input) },
+                &syn::parse_quote_spanned! { Span::mixed_site() => allowed },
             );
             let field_names = matches!(struct_.fields, syn::Fields::Named(_))
                 .then(|| {
@@ -130,7 +131,7 @@ fn impl_for_enum<'i>(
     let parse = enum_attr
         .as_ref()
         .map(|e| {
-            let parse = Variant::to_parsing_tokens(&e.variants, crate_, mode.into_token_mode());
+            let parse = e.to_parsing_tokens(crate_, mode.into_token_mode());
             let field_names = e.to_field_names_tokens(crate_, priv_);
             quote_spanned! { Span::mixed_site() =>
                 let allowed = #field_names;

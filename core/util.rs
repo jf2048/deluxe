@@ -221,16 +221,18 @@ impl<T: ParseMetaFlatUnnamed> ParseMetaFlatUnnamed for SpannedValue<T> {
 }
 
 impl<T: ParseMetaFlatNamed> ParseMetaFlatNamed for SpannedValue<T> {
+    const ACCEPTS_ALL: bool = T::ACCEPTS_ALL;
     #[inline]
     fn field_names() -> &'static [&'static str] {
         T::field_names()
     }
     fn parse_meta_flat_named(
         inputs: &[syn::parse::ParseStream],
-        allowed: Option<&[&str]>,
+        prefix: &str,
+        validate: bool,
     ) -> Result<Self> {
         let mut span = crate::parse_helpers::inputs_span(inputs);
-        let value = T::parse_meta_flat_named(inputs, allowed)?;
+        let value = T::parse_meta_flat_named(inputs, prefix, validate)?;
         if let Some(closed) = span.join(inputs_span(inputs)) {
             span = closed;
         }
@@ -239,18 +241,14 @@ impl<T: ParseMetaFlatNamed> ParseMetaFlatNamed for SpannedValue<T> {
 }
 
 impl<T: ParseMetaAppend> ParseMetaAppend for SpannedValue<T> {
-    fn parse_meta_append<I, S>(
-        inputs: &[syn::parse::ParseStream],
-        paths: I,
-        allowed: Option<&[&str]>,
-    ) -> Result<Self>
+    fn parse_meta_append<I, S>(inputs: &[syn::parse::ParseStream], paths: I) -> Result<Self>
     where
         I: IntoIterator<Item = S>,
         I::IntoIter: Clone,
         S: AsRef<str>,
     {
         let mut span = inputs_span(inputs);
-        let value = T::parse_meta_append(inputs, paths, allowed)?;
+        let value = T::parse_meta_append(inputs, paths)?;
         if let Some(closed) = span.join(inputs_span(inputs)) {
             span = closed;
         }
@@ -258,14 +256,10 @@ impl<T: ParseMetaAppend> ParseMetaAppend for SpannedValue<T> {
     }
 }
 
-impl<T: ParseMetaFlatPrefixed> ParseMetaFlatPrefixed for SpannedValue<T> {
-    fn parse_meta_flat_prefixed(
-        inputs: &[syn::parse::ParseStream],
-        prefix: &str,
-        allowed: Option<&[&str]>,
-    ) -> Result<Self> {
+impl<T: ParseMetaRest> ParseMetaRest for SpannedValue<T> {
+    fn parse_meta_rest(inputs: &[syn::parse::ParseStream]) -> Result<Self> {
         let mut span = inputs_span(inputs);
-        let value = T::parse_meta_flat_prefixed(inputs, prefix, allowed)?;
+        let value = T::parse_meta_rest(inputs)?;
         if let Some(closed) = span.join(inputs_span(inputs)) {
             span = closed;
         }

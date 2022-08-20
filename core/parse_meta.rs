@@ -40,27 +40,20 @@ pub trait ParseMetaFlatUnnamed: Sized {
 
 pub trait ParseMetaFlatNamed: Sized {
     fn field_names() -> &'static [&'static str];
-    fn parse_meta_flat_named(inputs: &[ParseStream], allowed: Option<&[&str]>) -> Result<Self>;
-}
-
-pub trait ParseMetaFlatPrefixed: ParseMetaFlatNamed {
-    fn parse_meta_flat_prefixed(
-        inputs: &[ParseStream],
-        prefix: &str,
-        allowed: Option<&[&str]>,
-    ) -> Result<Self>;
+    fn parse_meta_flat_named(inputs: &[ParseStream], prefix: &str, validate: bool) -> Result<Self>;
+    const ACCEPTS_ALL: bool = false;
 }
 
 pub trait ParseMetaAppend: Sized {
-    fn parse_meta_append<I, S>(
-        inputs: &[ParseStream],
-        paths: I,
-        allowed: Option<&[&str]>,
-    ) -> Result<Self>
+    fn parse_meta_append<I, S>(inputs: &[ParseStream], paths: I) -> Result<Self>
     where
         I: IntoIterator<Item = S>,
         I::IntoIter: Clone,
         S: AsRef<str>;
+}
+
+pub trait ParseMetaRest: Sized {
+    fn parse_meta_rest(inputs: &[ParseStream]) -> Result<Self>;
 }
 
 macro_rules! impl_parse_meta_item_primitive {
@@ -226,7 +219,6 @@ macro_rules! impl_parse_meta_item_collection {
             fn parse_meta_append<I, S>(
                 inputs: &[ParseStream],
                 paths: I,
-                allowed: Option<&[&str]>,
             ) -> Result<Self>
             where
                 I: IntoIterator<Item = S>,
@@ -236,12 +228,11 @@ macro_rules! impl_parse_meta_item_collection {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
                 let paths = paths.into_iter();
-                parse_struct(inputs.iter().cloned(), |input, p, pspan| {
+                parse_struct(inputs.iter().cloned(), |input, p, _| {
                     if paths.clone().any(|path| path.as_ref() == p) {
                         let $item = parse_named_meta_item(input)?;
                         $push;
                     } else {
-                        check_unknown_attribute(p, pspan, allowed, &errors);
                         skip_named_meta_item(input);
                     }
                     Ok(())
@@ -299,7 +290,6 @@ macro_rules! impl_parse_meta_item_set {
             fn parse_meta_append<I, S>(
                 inputs: &[ParseStream],
                 paths: I,
-                allowed: Option<&[&str]>,
             ) -> Result<Self>
             where
                 I: IntoIterator<Item = S>,
@@ -309,7 +299,7 @@ macro_rules! impl_parse_meta_item_set {
                 let errors = Errors::new();
                 let mut $ident = Self::new();
                 let paths = paths.into_iter();
-                parse_struct(inputs.iter().cloned(), |input, p, pspan| {
+                parse_struct(inputs.iter().cloned(), |input, p, _| {
                     if paths.clone().any(|path| path.as_ref() == p) {
                         let span = input.span();
                         let $item = parse_named_meta_item(input)?;
@@ -318,7 +308,6 @@ macro_rules! impl_parse_meta_item_set {
                             errors.push(span, "Duplicate key");
                         }
                     } else {
-                        check_unknown_attribute(p, pspan, allowed, &errors);
                         skip_named_meta_item(input);
                     }
                     Ok(())
@@ -342,18 +331,13 @@ macro_rules! impl_parse_meta_item_map {
             }
             #[inline]
             fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-                Self::parse_meta_flat_named(&[input], None)
+                Self::parse_meta_rest(&[input])
             }
         }
 
-        impl<$kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)?, $vp: ParseMetaItem> ParseMetaFlatNamed for $ty <$kp, $vp> {
-            #[inline]
-            fn field_names() -> &'static [&'static str] {
-                &[]
-            }
-            fn parse_meta_flat_named(
+        impl<$kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)?, $vp: ParseMetaItem> ParseMetaRest for $ty <$kp, $vp> {
+            fn parse_meta_rest(
                 inputs: &[ParseStream],
-                _allowed: Option<&[&str]>,
             ) -> Result<Self> {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
