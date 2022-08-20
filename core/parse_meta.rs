@@ -410,6 +410,17 @@ impl_parse_meta_item_wrapper!(std::rc::Rc<T>);
 impl_parse_meta_item_wrapper!(std::cell::Cell<T>);
 impl_parse_meta_item_wrapper!(std::cell::RefCell<T>);
 
+impl<'t, T: ParseMetaItem + Clone> ParseMetaItem for std::borrow::Cow<'t, T> {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
+        Ok(Self::Owned(T::parse_meta_item(input, mode)?))
+    }
+    #[inline]
+    fn parse_meta_item_flag(span: Span) -> Result<Self> {
+        T::parse_meta_item_flag(span).map(Self::Owned)
+    }
+}
+
 impl<T: ParseMetaItem, P: Parse + Default> ParseMetaItem for Punctuated<T, P> {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
