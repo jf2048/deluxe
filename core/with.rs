@@ -1,4 +1,11 @@
+//! Custom parsing helpers for `#[deluxe(with = "...")]`.
+
+/// Helpers for parsing any type that implements [`std::str::FromStr`].
+///
+/// Can be used on a field by specifying the module, like
+/// `#[deluxe(with = "deluxe::with::from_str")]`
 pub mod from_str {
+    #![allow(missing_docs)]
     use crate::{Error, ParseMode, Result};
     use std::str::FromStr;
     use syn::parse::ParseStream;
@@ -24,7 +31,12 @@ pub mod from_str {
     }
 }
 
+/// Helpers for parsing a module path using [`syn::Path::parse_mod_style`].
+///
+/// The field should be a `syn::Path`. Can be used on a field by specifying the module, like
+/// `#[deluxe(with = "deluxe::with::mod_path")]`
 pub mod mod_path {
+    #![allow(missing_docs)]
     use crate::{ParseMode, Result};
     use syn::parse::ParseStream;
 
@@ -42,7 +54,12 @@ pub mod mod_path {
     }
 }
 
+/// Helpers for parsing a `Vec` of module paths using [`syn::Path::parse_mod_style`].
+///
+/// The field should be a `Vec<syn::Path>`. Can be used on a field by specifying the module, like
+/// `#[deluxe(with = "deluxe::with::mod_path_vec")]`
 pub mod mod_path_vec {
+    #![allow(missing_docs)]
     use crate::{ParseMode, Result};
     use syn::parse::ParseStream;
 

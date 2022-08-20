@@ -2,24 +2,43 @@ use crate::Result;
 use proc_macro2::Span;
 use syn::spanned::Spanned;
 
+/// Parses a structure out of a [`syn::Attribute`] list.
+///
+/// This trait is intended for types that may share a set of matching attributes with other types.
 pub trait ParseAttributes<'t, T: HasAttributes>: Sized {
+    /// Checks if a given attribute path can be parsed by this type.
     fn path_matches(path: &syn::Path) -> bool;
+    /// Iterates the attributes from a `T`, parsing any that match.
+    ///
+    /// Implementations should use the [`ref_tokens`](crate::parse_helpers::ref_tokens) helper to
+    /// automatically get references to any matching `TokenStream`s, and then parse them using
+    /// [`parse_struct_attr_tokens`](crate::parse_helpers::parse_struct_attr_tokens).
     fn parse_attributes(obj: &'t T) -> Result<Self>;
 }
 
+/// Extracts a structure out of a [`syn::Attribute`] list.
+///
+/// This trait is intended for types that "consume" attributes from another syntax tree node.
 pub trait ExtractAttributes<T: HasAttributes>: Sized {
+    /// Checks if a given attribute path can be extracted by this type.
     fn path_matches(path: &syn::Path) -> bool;
+    /// Iterates the attributes from a `T`, extracting and parsing any that match.
+    ///
+    /// Implementations should use the [`take_tokens`](crate::parse_helpers::take_tokens) helper to
+    /// automatically extract any matching `TokenStream`s, and then parse them using
+    /// [`parse_struct_attr_tokens`](crate::parse_helpers::parse_struct_attr_tokens).
     fn extract_attributes(obj: &mut T) -> Result<Self>;
 }
 
-/// Trait for a `syn` type containing a list of attributes.
+/// Trait for a [`syn`] type containing a list of attributes.
 ///
-/// Implementations are provided for all `syn` types containing a `Vec<syn::Attribute>`.
+/// Implementations are provided for all [`syn`] types containing a `Vec<syn::Attribute>`.
 pub trait HasAttributes {
     /// Returns an immutable slice of attributes.
     fn attrs(&self) -> &[syn::Attribute];
-    /// Returns a mutable `Vec` of attributes. Returns `Err` if the type does not support mutable
-    /// attributes.
+    /// Returns a mutable `Vec` of attributes.
+    ///
+    /// Returns `Err` if the type does not support mutable attributes.
     fn attrs_mut(&mut self) -> Result<&mut Vec<syn::Attribute>>;
 }
 
@@ -471,8 +490,14 @@ impl_has_attributes!(syn::TypeParam);
 impl_has_attributes!(syn::Variadic);
 impl_has_attributes!(syn::Variant);
 
+/// Converts a [`HasAttributes`] type to a stored container value.
+///
+/// This trait is only called by the `#[deluxe(container)`] attribute on fields to properly handle
+/// conversions to corresponding owned and `Option` types.
 pub trait ToContainer<'t, T> {
+    /// Converts a reference to a stored container `T`.
     fn to_container(&'t self) -> T;
+    /// Converts a mutable reference to a stored container `T`.
     fn to_container_mut(&'t mut self) -> T;
 }
 

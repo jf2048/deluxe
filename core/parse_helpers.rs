@@ -1,3 +1,5 @@
+//! Utility functions for parse trait implementations.
+
 use crate::{Error, Errors, ParseMetaItem, ParseMode, Result};
 use proc_macro2::{Span, TokenStream, TokenTree};
 use std::{borrow::Cow, collections::HashSet};
@@ -20,10 +22,10 @@ mod sealed {
 
 /// Helpers for parsing tokens inside a delimiter.
 ///
-/// This trait is only implemeted for the `syn` delimiter token types.
+/// This trait is only implemeted for the [`syn`] delimiter token types.
 pub trait ParseDelimited: sealed::Sealed {
-    /// Parses a pair of delimiter tokens, and returns a [`syn::ParseBuffer`] for the tokens inside
-    /// the delimiter.
+    /// Parses a pair of delimiter tokens, and returns a [`ParseBuffer`](syn::parse::ParseBuffer)
+    /// for the tokens inside the delimiter.
     fn parse_delimited(input: ParseStream) -> Result<ParseBuffer>;
     /// Parse a stream surrounded by a delimiter. The inner stream is allowed to contain
     /// a trailing comma.
@@ -75,11 +77,17 @@ impl ParseDelimited for Bracket {
     }
 }
 
+/// Checks if a stream is empty or contains only a comma.
+///
+/// Returns `false` if any other tokens are present besides a single comma.
 #[inline]
 pub fn peek_eof_or_trailing_comma(input: ParseStream) -> bool {
     parse_eof_or_trailing_comma(&input.fork()).is_ok()
 }
 
+/// Parses a stream for end-of-stream, or a single comma.
+///
+/// Returns a parse error if any other tokens are present besides a single comma.
 #[inline]
 pub fn parse_eof_or_trailing_comma(input: ParseStream) -> Result<()> {
     if input.peek(Token![,]) {
@@ -89,6 +97,12 @@ pub fn parse_eof_or_trailing_comma(input: ParseStream) -> Result<()> {
     Ok(())
 }
 
+/// Parses a [`ParseMetaItem`](crate::ParseMetaItem) inline from an empty token stream.
+///
+/// Creates an empty token stream and then calls
+/// [`ParseMetaItem::parse_meta_item_inline`](crate::ParseMetaItem::parse_meta_item_inline) on it,
+/// passing through `mode`. The empty token stream will be created with `span`, so that any
+/// resulting error messages can be spanned to it.
 #[inline]
 pub fn parse_empty_meta_item<T: ParseMetaItem>(
     span: proc_macro2::Span,
@@ -101,6 +115,19 @@ pub fn parse_empty_meta_item<T: ParseMetaItem>(
     )
 }
 
+/// Parses a [`ParseMetaItem`](crate::ParseMetaItem) following a name.
+///
+/// To be used by any parse implementations that expect named attributes.
+///
+/// If the first token is `=`, then calls
+/// [`ParseMetaItem::parse_meta_item`](crate::ParseMetaItem::parse_meta_item). If the first token
+/// is a parenthesized group, calls
+/// [`ParseMetaItem::parse_meta_item_inline`](crate::ParseMetaItem::parse_meta_item_inline) on the
+/// contents.
+///
+/// If neither a `=` or `(` is parsed, then no additional tokens are consumed, and
+/// [`ParseMetaItem::parse_meta_item_flag`](crate::ParseMetaItem::parse_meta_item_flag) is called
+/// with the current stream span.
 #[inline]
 pub fn parse_named_meta_item<T: ParseMetaItem>(input: ParseStream) -> Result<T> {
     if input.peek(Token![=]) {
@@ -113,6 +140,12 @@ pub fn parse_named_meta_item<T: ParseMetaItem>(input: ParseStream) -> Result<T> 
     }
 }
 
+/// Parses a [`ParseMetaItem`](crate::ParseMetaItem) following a name, using custom parse
+/// functions.
+///
+/// Equivalent to [`parse_named_meta_item`], but the functions are passed directly instead of using
+/// the implementations from a trait. Used for parsing enum variants. For parsing with a custom
+/// module path, use [`parse_named_meta_item_with!`](crate::parse_named_meta_item_with!).
 #[inline]
 pub fn parse_named_meta_item_with<T, I, II, IF>(
     input: ParseStream,
@@ -138,6 +171,21 @@ where
     }
 }
 
+/// Parses a [`ParseMetaItem`](crate::ParseMetaItem) following a name, using a custom parse
+/// module.
+///
+/// Equivalent to [`parse_named_meta_item_with`](fn@parse_named_meta_item_with), but the functions
+/// are taken from a module path. Can be used to implement additional parsing strategies for types
+/// that already implement [`ParseMetaItem`](crate::ParseMetaItem), or for generic types.
+/// Some common parsers are available in the [`with`](crate::with) module.
+///
+/// The first argument is a [`syn::parse::ParseStream`], and the second argument is a module
+/// path. Modules are required to implement the functions `parse_meta_item`, `parse_meta_item_inline`,
+/// and `parse_meta_item_flag`, even if just to return an error. The signatures of these functions
+/// should match the equivalent functions in [`ParseMetaItem`](crate::ParseMetaItem).
+///
+/// `parse_meta_item_flag` implementations can call [`flag_disallowed_error`] for a standard error
+/// if flags are not supported by the target type.
 #[macro_export]
 macro_rules! parse_named_meta_item_with {
     ($input:expr, $p:ident $(::$ps:ident)*) => {
@@ -150,6 +198,16 @@ macro_rules! parse_named_meta_item_with {
     };
 }
 
+/// Parses an inline fixed-length tuple struct from a stream.
+///
+/// `len` is the maximum number of items to parse. Each stream in `inputs` will be parsed in order,
+/// calling `func` for every field with three arguments: the current stream, a slice containing the
+/// current stream and all following streams, and the index of the current field starting from `0`.
+/// Commas will be parsed between each field.
+///
+/// Returns the number of items that were successfully parsed, or `Err` on any parsing errors or
+/// the first failure of `func`. A trailing comma will be consumed only if the return value is less
+/// than `len`.
 #[inline]
 pub fn parse_tuple_struct<F: FnMut(ParseStream, &[ParseStream], usize) -> Result<()>>(
     mut inputs: &[ParseStream],
@@ -176,6 +234,19 @@ pub fn parse_tuple_struct<F: FnMut(ParseStream, &[ParseStream], usize) -> Result
     Ok(counter)
 }
 
+/// Parses an inline struct with named fields from a stream.
+///
+/// Each stream in `inputs` will be parsed in order, first parsing a path by calling
+/// `syn::Path::parse_mod_style`. Then, `func` will be called for every field with three arguments:
+/// the current stream, the name of the field as a string, and the span of the field name. Commas
+/// will be parsed between each field. A trailing comma will always be consumed. Callers will
+/// typically check the field name for a match, and then call [`parse_named_meta_item`] or
+/// [`parse_named_meta_item_with`](fn@parse_named_meta_item_with).
+///
+/// Callers will usually want to use [`check_unknown_attribute`] and [`skip_named_meta_item`] when
+/// encountering any unknown fields.
+///
+/// Returns `Err` on any parsing errors or the first failure of `func`.
 #[inline]
 pub fn parse_struct<'i, I, F>(inputs: I, mut func: F) -> Result<()>
 where
@@ -197,6 +268,9 @@ where
     Ok(())
 }
 
+/// Skips over items in a [`ParseStream`](syn::parse::ParseStream) until a comma is reached.
+///
+/// Consumes all tokens up until the comma. Does not consume the comma.
 #[inline]
 pub fn skip_named_meta_item(input: ParseStream) {
     input
@@ -239,6 +313,22 @@ fn parse_tokens<T, F: FnOnce(ParseStream) -> Result<T>>(input: TokenStream, func
     Ok(ret.unwrap())
 }
 
+/// Parses a collection of [`ToTokens`](quote::ToTokens) values into a struct with named fields.
+///
+/// Should be used from [`ParseAttributes`](crate::ParseAttributes) or
+/// [`ExtractAttributes`](crate::ExtractAttributes) implementations, which should respectively call
+/// [`ref_tokens`] or [`take_tokens`] before passing any token streams into this function.
+///
+/// Each stream will be parsed for a parenthesized group. Then, `func` will be called with a list
+/// of every [`ParseBuffer`](syn::parse::ParseBuffer) inside these groups. An end-of-stream (or
+/// trailing comma followed by end-of-stream) will be consumed from each buffer after `func`
+/// returns. Callers should ensure the success path consumes all other tokens in each buffer.
+///
+/// Structs with named fields or tuple structs should be parsed by respectively calling
+/// [`parse_struct`] or [`parse_tuple_struct`].
+///
+/// Returns a parse error if any of the streams failed to parse. Otherwise, passes through the
+/// return value from `func`.
 pub fn parse_struct_attr_tokens<T, I, F, R>(inputs: I, func: F) -> Result<R>
 where
     T: quote::ToTokens,
@@ -270,6 +360,9 @@ where
     parse_next(inputs.into_iter(), Vec::new(), func)
 }
 
+/// Converts a [`syn::Path`] to a `String`.
+///
+/// Any generic arguments on segments in `path` are ignored.
 pub fn path_to_string(path: &syn::Path) -> String {
     let mut s = String::new();
     for seg in &path.segments {
@@ -281,6 +374,10 @@ pub fn path_to_string(path: &syn::Path) -> String {
     s
 }
 
+/// Concatenates two path strings.
+///
+/// If `prefix` is empty, returns `path`. Otherwise, joins `prefix` and `path` together with `::`
+/// as a separator. If `prefix` ends with `::` then no additional `::` will be added.
 #[inline]
 pub fn join_path<'path>(prefix: &str, path: &'path str) -> Cow<'path, str> {
     if prefix.is_empty() {
@@ -292,6 +389,11 @@ pub fn join_path<'path>(prefix: &str, path: &'path str) -> Cow<'path, str> {
     }
 }
 
+/// Concatenates two path prefix strings.
+///
+/// Similar to [`join_path`], but all returned strings will have `::` appended to the end of them.
+/// The returned string will be suitable to pass to [`str::strip_prefix`] after calling
+/// [`path_to_string`].
 #[inline]
 pub fn join_prefix(prefix: &str, path: &str) -> String {
     if prefix.is_empty() {
@@ -309,16 +411,23 @@ pub fn join_prefix(prefix: &str, path: &str) -> String {
     }
 }
 
+/// Calls [`join_path`] on all paths in a slice.
 #[inline]
 pub fn join_paths(prefix: &str, paths: &[&'static str]) -> Vec<Cow<'static, str>> {
     paths.iter().map(|p| join_path(prefix, p)).collect()
 }
 
 #[inline]
+#[doc(hidden)]
 pub fn extend_from_owned<'s>(vec: &mut Vec<&'s str>, owned: &'s [Cow<'s, str>]) {
     vec.extend(owned.iter().map(|p| p.as_ref()));
 }
 
+/// Checks if a path matches a list of names.
+///
+/// Each string in `segs` is checked against `path.segments[..].ident`.
+///
+/// Returns `false` if the paths are different, or if any segments have generic arguments.
 pub fn path_matches(path: &syn::Path, segs: &[&str]) -> bool {
     if path.segments.len() != segs.len() {
         return false;
@@ -334,11 +443,19 @@ pub fn path_matches(path: &syn::Path, segs: &[&str]) -> bool {
     true
 }
 
+/// Checks if all keys are contained in a set of paths.
+///
+/// A key is a list of names that could be used for a field. Returns `true` if each key has at
+/// least one name present in `paths`.
 #[inline]
 pub fn has_paths(paths: &HashSet<&str>, keys: &[&[&str]]) -> bool {
     keys.iter().all(|ks| ks.iter().any(|i| paths.contains(i)))
 }
 
+/// Creates a span encompassing a collection of [`ParseStream`](syn::parse::ParseStream)s.
+///
+/// Returns a span joined togther from each item in the iterator, using
+/// [`Span::join`](proc_macro2::Span::join).
 #[inline]
 pub fn inputs_span<'a>(inputs: impl IntoIterator<Item = &'a ParseStream<'a>>) -> Span {
     let mut iter = inputs.into_iter();
@@ -356,11 +473,20 @@ pub fn inputs_span<'a>(inputs: impl IntoIterator<Item = &'a ParseStream<'a>>) ->
     }
 }
 
+/// Returns an error with a "unexpected flag" message.
+///
+/// The error will be spanned to `span`.
 #[inline]
 pub fn flag_disallowed_error(span: Span) -> Error {
     syn::Error::new(span, "unexpected flag, expected `=` or parentheses")
 }
 
+/// Returns an error with an "unknown field" message.
+///
+/// `path` is the name of the unknown field that will be included in the error message. The names
+/// of allowed fields can be passed in `fields`. If any fields are a close enough match to `path`,
+/// then a "did you mean" message will be appended to the end of the error message. The error will
+/// be spanned to `span`.
 pub fn unknown_error(path: &str, span: Span, fields: &[&str]) -> Error {
     let mut closest = None;
     for field in fields {
@@ -379,6 +505,10 @@ pub fn unknown_error(path: &str, span: Span, fields: &[&str]) -> Error {
     }
 }
 
+/// Appends an error if a field is not included in a list of fields.
+///
+/// If `path` is not present in `fields` then an error will be appended to `errors`. The error will
+/// be spanned to `span`. Returns `true` if an error was appended.
 #[inline]
 pub fn check_unknown_attribute(path: &str, span: Span, fields: &[&str], errors: &Errors) -> bool {
     if !fields.contains(&path) {
@@ -388,6 +518,8 @@ pub fn check_unknown_attribute(path: &str, span: Span, fields: &[&str], errors: 
     false
 }
 
+/// Returns an iterator of [`TokenStream`](proc_macro2::TokenStream) references from a
+/// matched [`ParseAttributes`](crate::ParseAttributes).
 #[inline]
 pub fn ref_tokens<'t, P, T>(input: &'t T) -> impl Iterator<Item = &TokenStream>
 where
@@ -399,6 +531,11 @@ where
         .filter_map(|a| P::path_matches(&a.path).then(|| &a.tokens))
 }
 
+/// Returns an iterator of [`TokenStream`](proc_macro2::TokenStream)s from a
+/// matched [`ExtractAttributes`](crate::ExtractAttributes).
+///
+/// All matching attributes will be removed from `input`. The resulting
+/// [`TokenStream`](proc_macro2::TokenStream)s are moved into the iterator.
 #[inline]
 pub fn take_tokens<E, T>(input: &mut T) -> Result<impl Iterator<Item = TokenStream>>
 where
@@ -418,16 +555,28 @@ where
     Ok(tokens.into_iter())
 }
 
+/// Copies a [`ParseStream`](syn::parse::ParseStream) slice into an iterator.
+///
+/// Used to convert a list of streams before calling [`parse_struct`]. If the struct contains any
+/// `#[deluxe(flatten)]`, `#[deluxe(rest)]`, or `#[deluxe(append)]` fields, then [`fork_inputs`]
+/// should be called instead since the inputs will need to be parsed multiple times.
 #[inline]
 pub fn ref_inputs<'s>(inputs: &'s [ParseStream<'s>]) -> impl Iterator<Item = ParseStream<'s>> + 's {
     inputs.iter().cloned()
 }
 
+/// Forks all streams in a [`ParseStream`](syn::parse::ParseStream) slice into a new [`Vec`].
+///
+/// Used to copy the initial states in a list of streams before calling [`parse_struct`].
 #[inline]
 pub fn fork_inputs<'s>(inputs: &[ParseStream<'s>]) -> Vec<ParseBuffer<'s>> {
     inputs.iter().map(|s| s.fork()).collect()
 }
 
+/// Appends a "too many enum variants" error.
+///
+/// The error will be appended to `errors` and spanned to `span`. `prefix` will be appended to the
+/// variant names.
 #[inline]
 pub fn only_one_variant(span: Span, prefix: &str, (va, vb): (&str, &str), errors: &Errors) {
     errors.push(
@@ -440,6 +589,13 @@ pub fn only_one_variant(span: Span, prefix: &str, (va, vb): (&str, &str), errors
     );
 }
 
+/// Appends a "enum variant expected" error message.
+///
+/// `variants` is a list of variants, where each variant is a list of fields, where each field is a
+/// list of names that can be used for that field.
+///
+/// The error will be appended to `errors` and spanned to `span`. `prefix` will be appended to the
+/// variant names.
 #[inline]
 pub fn variant_required(span: Span, prefix: &str, variants: &[&[&[&str]]], errors: &Errors) {
     errors.push(

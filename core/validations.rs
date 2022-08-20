@@ -1,7 +1,14 @@
+//! Additional helper functions for validating after parsing.
+
 use syn::spanned::Spanned;
 
 use crate::Errors;
 
+/// Appends an error if more than one given attribute is present.
+///
+/// `attrs` should provide an iterator of tuples containing the field name, and an `Option`
+/// possibly containing the field value. If two or more are `Some`, an error will be appended to
+/// `Errors`, with `prefix` prepended onto the names.
 pub fn only_one<'t, I>(attrs: I, prefix: &str, errors: &Errors)
 where
     I: IntoIterator<Item = &'t (&'static str, Option<&'t dyn Spanned>)>,
@@ -40,6 +47,22 @@ macro_rules! _only_one_arg {
     };
 }
 
+/// Convenience macro for [`only_one`](fn@only_one).
+///
+/// Automatically casts each field to `&dyn Spanned`. Can also take fields as a single ident if the
+/// variable name is the same as the field name.
+///
+/// # Example
+///
+/// ```
+/// let errors = Errors::new();
+/// let my_bool: Option<syn::LitBool> = None;
+/// let path: Option<syn::Path> = None;
+/// let field3: Option<syn::Type> = None;
+/// // ... parsing omitted ...
+/// // field names are `my_bool`, `path`, `ty`
+/// only_one!("", &errors, my_bool, path, ("ty", field3.as_ref()));
+/// ```
 #[macro_export]
 macro_rules! only_one {
     ($prefix:expr, $errors:expr $(, $fields:tt)* $(,)?) => {

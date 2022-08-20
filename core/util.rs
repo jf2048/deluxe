@@ -9,9 +9,12 @@ use syn::spanned::Spanned;
 
 use crate::{parse_helpers::inputs_span, parse_meta::*};
 
+/// The error type for parsers.
 pub type Error = syn::Error;
+/// The result of a parse method.
 pub type Result<T> = syn::Result<T>;
 
+/// A wrapper for a list of errors. Can be empty.
 #[derive(Clone, Debug, Default)]
 #[repr(transparent)]
 pub struct Errors {
@@ -20,21 +23,28 @@ pub struct Errors {
 
 impl Errors {
     #[inline]
+    /// Creates a new empty error list.
     pub fn new() -> Self {
         Default::default()
     }
+    /// Checks if the list contains any errors.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.errors.borrow().is_none()
     }
+    /// Pushes one error onto the list. This function is a wrapper around [`syn::Error::new`].
     #[inline]
     pub fn push<T: Display>(&self, span: Span, message: T) {
         self.push_syn(Error::new(span, message));
     }
+    /// Pushes one error onto the list, setting the error's span to
+    /// [`Span::call_site()`](proc_macro2::Span::call_site).
     #[inline]
     pub fn push_call_site<T: Display>(&self, message: T) {
         self.push(Span::call_site(), message);
     }
+    /// Pushes one error onto the list spanning the given syntax tree node. This
+    /// function is a wrapper around [`syn::Error::new_spanned`].
     #[inline]
     pub fn push_spanned<T, U>(&self, tokens: T, message: U)
     where
@@ -43,6 +53,7 @@ impl Errors {
     {
         self.push_syn(Error::new_spanned(tokens, message));
     }
+    /// Pushes one previously constructed [`Error`] onto the list.
     #[inline]
     pub fn push_syn(&self, error: Error) {
         let mut storage = self.errors.borrow_mut();
@@ -52,6 +63,7 @@ impl Errors {
             storage.replace(error);
         }
     }
+    /// Appends all errors from `iter` into this list.
     #[inline]
     pub fn extend<T: IntoIterator<Item = Error>>(&self, iter: T) {
         let mut errors = self.errors.borrow_mut();
@@ -65,6 +77,10 @@ impl Errors {
             }
         }
     }
+    /// Checks if the error list is empty.
+    ///
+    /// If the list has any errors, returns `Err` containing one `Error` with all of the errors
+    /// combined using [`Error::combine`](syn::Error::combine). Otherwise, returns `Ok`.
     #[inline]
     pub fn check(self) -> Result<()> {
         if let Some(err) = self.errors.take() {
@@ -73,6 +89,8 @@ impl Errors {
             Ok(())
         }
     }
+    /// Returns an iterator of token streams containing the [`std::compile_error`] invocations
+    /// generated with [`Error::to_compil_error`](syn::Error::to_compile_error).
     #[inline]
     pub fn into_compile_errors(self) -> impl IntoIterator<Item = TokenStream> {
         self.errors.take().into_iter().map(|e| e.to_compile_error())
@@ -113,6 +131,7 @@ impl IntoIterator for Errors {
     }
 }
 
+/// An iterator containing all the errors in an [`Errors`].
 pub struct ErrorsIntoIter {
     errors: Option<<Error as IntoIterator>::IntoIter>,
 }
@@ -124,6 +143,10 @@ impl Iterator for ErrorsIntoIter {
     }
 }
 
+/// A wrapper for adding a [`Span`](proc_macro2::Span) to an arbitrary value.
+///
+/// Implementations are provided for all the parsing traits that simply delegate to `T`, capturing
+/// the inital [`Span`](proc_macro2::Span) from the [`ParseStream`](syn::parse::ParseStream).
 #[derive(Copy, Clone, Debug)]
 pub struct SpannedValue<T> {
     value: T,
@@ -131,14 +154,18 @@ pub struct SpannedValue<T> {
 }
 
 impl<T> SpannedValue<T> {
+    /// Creates a new value wrapping a T, with the span set to
+    /// [`Span::call_site`](proc_macro2::Span::call_site).
     #[inline]
     pub fn new(value: T) -> Self {
         Self::with_span(value, Span::call_site())
     }
+    /// Creates a new value wrapping a T, with the span set to `span`.
     #[inline]
     pub fn with_span(value: T, span: Span) -> Self {
         Self { value, span }
     }
+    /// Unwraps a `SpannedValue` into a `T`. Note this is an associated function, not a method.
     #[inline]
     pub fn into_inner(value: SpannedValue<T>) -> T {
         value.value

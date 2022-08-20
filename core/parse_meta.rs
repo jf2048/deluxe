@@ -10,41 +10,140 @@ use syn::{
     Token,
 };
 
+/// The context a meta item parser is operating in.
 pub enum ParseMode {
+    /// Named context, corresponding to [`syn::FieldsNamed`].
     Named,
+    /// Unnamed context, corresponding to [`syn::FieldsUnnamed`].
     Unnamed,
 }
 
 /// Base trait for parsing a single field out of [`syn::parse::ParseStream`].
+///
+/// This trait is conceptually similar to [`syn::parse::Parse`], but with a few key differences:
+/// - It can tell when an item is being parsed from a tuple struct or a struct with named fields.
+/// - It can be parsed "inline" by containers that consume the surrounding delimiters.
+/// - It can be parsed as a "flag" by containers that allow empty fields.
+///
+/// Implementations are provided for all [primitives](std::primitive) and [standard
+/// collections](std::collections), as well as for tuples, arrays, and for most parseable
+/// node structures in [`syn`].
 pub trait ParseMetaItem: Sized {
-    /// Parse the item. If the item can contain commas, it should be wrapped in a pair of
-    /// delimiters.
+    /// Parse the item from the tokens in `input`.
+    ///
+    /// If the item can contain commas, the whole item should be wrapped in a pair of delimiters.
+    /// The stream should should not parse any trailing commas or additional tokens past the end of
+    /// the item.
+    ///
+    /// The `_mode` argument describes whether this item is being parsed in a named or an unnamed
+    /// context. This argument will rarely be used. It only should be checked when an item
+    /// uses [`Self::parse_meta_item_flag`] to provide shorthand for a default enum value, and
+    /// wants to avoid parsing it in a named context. In an unnamed context, both values will
+    /// still need to be parsed. See the implementation of this trait on `Option<T>` for an
+    /// example of when to check `_mode`.
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self>;
-    /// Parse the item in an inline context. The stream can consume any number of commas. Items
-    /// with a finite length should not consume a trailing comma. The default implementation calls
-    /// [`Self::parse_meta_item`].
+    /// Parse the item in an inline context.
+    ///
+    /// The stream can consume any number of commas. Items with a finite length should not consume
+    /// a trailing comma. See [`Self::parse_meta_item`] for a description of the `_mode` argument.
+    ///
+    /// This function should be implemented for custom data structures, but is not intended to be
+    /// called by a parser of a structure containing it as a field. Instead, the custom data
+    /// structure should implement [`ParseMetaFlatUnnamed::parse_meta_flat_unnamed`],
+    /// [`ParseMetaFlatNamed::parse_meta_flat_named`], or
+    /// [`ParseMetaRest::parse_meta_rest`]. Then, the implementation of this
+    /// function should delegate to one of those methods.
+    ///
+    /// The default implementation directly calls [`Self::parse_meta_item`].
     #[inline]
     fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
         Self::parse_meta_item(input, _mode)
     }
+    /// Parses an empty flag value.
+    ///
+    /// Only called when parsing a struct with named fields, with no value given after the field
+    /// name. `_span` is the span of the token following the name.
+    ///
+    /// The default implementation returns an error.
     #[inline]
     fn parse_meta_item_flag(_span: Span) -> Result<Self> {
         Err(flag_disallowed_error(_span))
     }
 }
 
+/// Parses a meta item for a structure with unnamed fields.
+///
+/// Automatically implemented by `derive(ParseMetaItem)` for tuple
+/// structures, but can also be manually implemented for array-like types.
+///
+/// A parent structure that wants to flatten items of this type into its own fields should call
+/// [`Self::parse_meta_flat_unnamed`].
 pub trait ParseMetaFlatUnnamed: Sized {
+    /// Returns the number of fields in this structure.
+    ///
+    /// Returns `None` if it can parse any number of fields.
+    ///
+    /// Currently, this is only useful when generating error messages.
     fn field_count() -> Option<usize>;
+    /// Parse the item from a group of inline contexts.
+    ///
+    /// The streams can consume any number of commas. The streams in `inputs` should not be
+    /// considered contiguous, but should imply a trailing comma if one is not present.
+    /// Implementations should parse each stream in order, continuing to the next stream when the
+    /// current one is exhausted.
+    ///
+    /// If the structure can take any number of fields, it should parse all streams to the end and
+    /// ensure that a traiing comma is parsed.
+    ///
+    /// If the structure contains a finite number of fields, then trailing comma should not be
+    /// consumed. Once all fields are parsed, the function should return, without any further
+    /// modifications to the current stream or any following streams.
+    ///
+    /// `index` is the starting offset into the currently parsing tuple. It should be used as a
+    /// base when generating error messages.
     fn parse_meta_flat_unnamed(inputs: &[ParseStream], index: usize) -> Result<Self>;
 }
 
+/// Parses a meta item for a structure with named fields.
+///
+/// Automatically implemented by `derive(ParseMetaItem)` for structures with named fields, and for
+/// enums.
+///
+/// A parent structure that wants to flatten items of this type into its own fields should call
+/// [`Self::parse_meta_flat_named`].
 pub trait ParseMetaFlatNamed: Sized {
+    /// Returns an array specifying all optional and required fields accepted by this structure.
     fn field_names() -> &'static [&'static str];
+    /// Parse the item from a group of inline named contexts.
+    ///
+    /// The streams can consume any number of commas. The streams in `inputs` should not be
+    /// considered contiguous, but should imply a trailing comma if one is not present.
+    /// Implementations should parse each stream in order, continuing to the next stream when the
+    /// current one is exhausted.
+    ///
+    /// All streams should be parsed to the end, skipping over unknown fields, and consuming a
+    /// trailing comma if present. The [`crate::parse_helpers::parse_struct`] helper should be used
+    /// for convenience. `prefix` should be stripped off the names of all fields before pattern
+    /// matching on them.
+    ///
+    /// If `validate` is true, then an error should be generated upon encountering any
+    /// fields not in [`Self::field_names`].
     fn parse_meta_flat_named(inputs: &[ParseStream], prefix: &str, validate: bool) -> Result<Self>;
+    /// A flag noting if this parser will consume all unknown fields.
+    ///
+    /// Should be set to `true` only for structures containing a `#[deluxe(rest)]` field.
     const ACCEPTS_ALL: bool = false;
 }
 
+/// Parses a meta item for a structure with named fields that concatenates all matching items.
+///
+/// Should be implemented on collection types. Implementations are provided for the common
+/// collection types in [`std`].
 pub trait ParseMetaAppend: Sized {
+    /// Parse the item from a group of inline named contexts.
+    ///
+    /// Fields with names matching any path in `paths` will be appended. Non-matching fields should
+    /// be skipped with [`crate::parse_helpers::skip_named_meta_item`].
     fn parse_meta_append<I, S>(inputs: &[ParseStream], paths: I) -> Result<Self>
     where
         I: IntoIterator<Item = S>,
@@ -52,7 +151,15 @@ pub trait ParseMetaAppend: Sized {
         S: AsRef<str>;
 }
 
+/// Parses a meta item for a structure with named fields that consumes all fields.
+///
+/// Should be implemented on map types. Implementations are provided for the common map types in
+/// [`std`].
 pub trait ParseMetaRest: Sized {
+    /// Parse the item from a group of inline named contexts.
+    ///
+    /// Fields with names in `exclude` should be should be skipped with
+    /// [`crate::parse_helpers::skip_named_meta_item`].
     fn parse_meta_rest(inputs: &[ParseStream], exclude: &[&str]) -> Result<Self>;
 }
 
