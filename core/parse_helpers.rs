@@ -129,14 +129,14 @@ pub fn parse_empty_meta_item<T: ParseMetaItem>(
 /// [`ParseMetaItem::parse_meta_item_flag`](crate::ParseMetaItem::parse_meta_item_flag) is called
 /// with the current stream span.
 #[inline]
-pub fn parse_named_meta_item<T: ParseMetaItem>(input: ParseStream) -> Result<T> {
+pub fn parse_named_meta_item<T: ParseMetaItem>(input: ParseStream, name_span: Span) -> Result<T> {
     if input.peek(Token![=]) {
         input.parse::<Token![=]>()?;
-        T::parse_meta_item(input, ParseMode::Named)
+        T::parse_meta_item(input, ParseMode::Named(name_span))
     } else if input.peek(Paren) {
-        Paren::parse_delimited_meta_item(input, ParseMode::Named)
+        Paren::parse_delimited_meta_item(input, ParseMode::Named(name_span))
     } else {
-        T::parse_meta_item_flag(input.span())
+        T::parse_meta_item_flag(name_span)
     }
 }
 
@@ -149,6 +149,7 @@ pub fn parse_named_meta_item<T: ParseMetaItem>(input: ParseStream) -> Result<T> 
 #[inline]
 pub fn parse_named_meta_item_with<T, I, II, IF>(
     input: ParseStream,
+    name_span: Span,
     parse: I,
     parse_inline: II,
     parse_flag: IF,
@@ -160,14 +161,14 @@ where
 {
     if input.peek(Token![=]) {
         input.parse::<Token![=]>()?;
-        parse(input, ParseMode::Named)
+        parse(input, ParseMode::Named(name_span))
     } else if input.peek(Paren) {
         let content = Paren::parse_delimited(input)?;
-        let result = parse_inline(&content, ParseMode::Named)?;
+        let result = parse_inline(&content, ParseMode::Named(name_span))?;
         parse_eof_or_trailing_comma(&content)?;
         Ok(result)
     } else {
-        parse_flag(input.span())
+        parse_flag(name_span)
     }
 }
 
@@ -179,8 +180,9 @@ where
 /// that already implement [`ParseMetaItem`](crate::ParseMetaItem), or for generic types.
 /// Some common parsers are available in the [`with`](crate::with) module.
 ///
-/// The first argument is a [`syn::parse::ParseStream`], and the second argument is a module
-/// path. Modules are required to implement the functions `parse_meta_item`, `parse_meta_item_inline`,
+/// The first argument is a [`syn::parse::ParseStream`], the second argument is the
+/// [`Span`](proc_macro2::Span) of the name tokens, and the third argument is a module path.
+/// Modules are required to implement the functions `parse_meta_item`, `parse_meta_item_inline`,
 /// and `parse_meta_item_flag`, even if just to return an error. The signatures of these functions
 /// should match the equivalent functions in [`ParseMetaItem`](crate::ParseMetaItem).
 ///
@@ -188,12 +190,13 @@ where
 /// if flags are not supported by the target type.
 #[macro_export]
 macro_rules! parse_named_meta_item_with {
-    ($input:expr, $p:ident $(::$ps:ident)*) => {
+    ($input:expr, $name_span:expr, $($path:tt)*) => {
         $crate::parse_helpers::parse_named_meta_item_with(
             $input,
-            $p $(::$ps)* :: parse_meta_item,
-            $p $(::$ps)* :: parse_meta_item_inline,
-            $p $(::$ps)* :: parse_meta_item_flag,
+            $name_span,
+            $($path)* :: parse_meta_item,
+            $($path)* :: parse_meta_item_inline,
+            $($path)* :: parse_meta_item_flag,
         )
     };
 }
@@ -561,16 +564,29 @@ where
 /// `#[deluxe(flatten)]`, `#[deluxe(rest)]`, or `#[deluxe(append)]` fields, then [`fork_inputs`]
 /// should be called instead since the inputs will need to be parsed multiple times.
 #[inline]
-pub fn ref_inputs<'s>(inputs: &'s [ParseStream<'s>]) -> impl Iterator<Item = ParseStream<'s>> + 's {
-    inputs.iter().cloned()
+pub fn ref_inputs<'s, S>(inputs: &'s [S]) -> impl Iterator<Item = ParseStream<'s>> + 's
+where
+    S: std::borrow::Borrow<ParseBuffer<'s>> + 's,
+{
+    inputs.iter().map(|s| s.borrow())
 }
 
 /// Forks all streams in a [`ParseStream`](syn::parse::ParseStream) slice into a new [`Vec`].
 ///
 /// Used to copy the initial states in a list of streams before calling [`parse_struct`].
 #[inline]
-pub fn fork_inputs<'s>(inputs: &[ParseStream<'s>]) -> Vec<ParseBuffer<'s>> {
-    inputs.iter().map(|s| s.fork()).collect()
+pub fn fork_inputs<'s, S>(inputs: &[S]) -> Vec<ParseBuffer<'s>>
+where
+    S: std::borrow::Borrow<ParseBuffer<'s>> + 's,
+{
+    inputs.iter().map(|s| s.borrow().fork()).collect()
+}
+
+/// Coverts a [`ParseBuffer`](syn::parse::ParseBuffer) slice to a slice of
+/// [`ParseStream`](syn::parse::ParseStream).
+#[inline]
+pub fn ref_buffers<'s>(inputs: &'s [ParseBuffer<'s>]) -> Vec<ParseStream<'s>> {
+    inputs.iter().collect()
 }
 
 /// Appends a "too many enum variants" error.

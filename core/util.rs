@@ -224,11 +224,26 @@ impl<T> Spanned for SpannedValue<T> {
 }
 
 impl<T: ParseMetaItem> ParseMetaItem for SpannedValue<T> {
+    #[inline]
     fn parse_meta_item(input: syn::parse::ParseStream, mode: crate::ParseMode) -> Result<Self> {
         let span = input.span();
         let value = T::parse_meta_item(input, mode)?;
         let span = input.span().join(span).unwrap();
         Ok(Self { value, span })
+    }
+    #[inline]
+    fn parse_meta_item_inline(input: syn::parse::ParseStream, mode: ParseMode) -> Result<Self> {
+        let span = input.span();
+        let value = T::parse_meta_item_inline(input, mode)?;
+        let span = input.span().join(span).unwrap();
+        Ok(Self { value, span })
+    }
+    #[inline]
+    fn parse_meta_item_flag(span: Span) -> Result<Self> {
+        Ok(Self {
+            value: T::parse_meta_item_flag(span)?,
+            span,
+        })
     }
 }
 

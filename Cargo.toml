@@ -10,5 +10,8 @@ syn = { version = "1.0.96", features = ["full", "parsing"], default-features = f
 deluxe-core = { path = "./core", version = "0.1.0" }
 deluxe-macros = { path = "./macros", version = "0.1.0" }
 
+[dev-dependencies]
+quote = "1.0.18"
+
 [workspace]
 members = ["core", "macros"]

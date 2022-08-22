@@ -11,11 +11,36 @@ use syn::{
 };
 
 /// The context a meta item parser is operating in.
+#[derive(Debug, Clone, Copy)]
 pub enum ParseMode {
     /// Named context, corresponding to [`syn::FieldsNamed`].
-    Named,
+    ///
+    /// Contains the [`Span`](proc_macro2::Span) of the name tokens.
+    Named(Span),
     /// Unnamed context, corresponding to [`syn::FieldsUnnamed`].
     Unnamed,
+}
+
+impl ParseMode {
+    /// Converts `self` to a [`Self::Named`].
+    ///
+    /// If `self` is [`Unnamed`](Self::Unnamed), uses the [`Span`](proc_macro2::Span) from `input`.
+    pub fn to_named(&self, input: ParseStream) -> Self {
+        match self {
+            Self::Unnamed => Self::Named(input.span()),
+            m => *m,
+        }
+    }
+    /// Gets the stored [`Span`](proc_macro2::Span).
+    ///
+    /// If `self` is [`Unnamed`](Self::Unnamed), returns the [`Span`](proc_macro2::Span) from
+    /// `input`.
+    pub fn to_span(&self, input: ParseStream) -> Span {
+        match self {
+            Self::Named(s) => *s,
+            _ => input.span(),
+        }
+    }
 }
 
 /// Base trait for parsing a single field out of [`syn::parse::ParseStream`].
@@ -228,7 +253,7 @@ impl<T: ParseMetaItem> ParseMetaItem for Option<T> {
     #[inline]
     fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
         match mode {
-            ParseMode::Named => T::parse_meta_item(input, mode).map(Some),
+            ParseMode::Named(_) => T::parse_meta_item(input, mode).map(Some),
             ParseMode::Unnamed => {
                 mod keywords {
                     syn::custom_keyword!(Some);
@@ -338,9 +363,9 @@ macro_rules! impl_parse_meta_item_collection {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
                 let paths = paths.into_iter();
-                parse_struct(inputs.iter().cloned(), |input, p, _| {
+                parse_struct(inputs.iter().cloned(), |input, p, pspan| {
                     if paths.clone().any(|path| path.as_ref() == p) {
-                        let $item = parse_named_meta_item(input)?;
+                        let $item = parse_named_meta_item(input, pspan)?;
                         $push;
                     } else {
                         skip_named_meta_item(input);
@@ -409,10 +434,10 @@ macro_rules! impl_parse_meta_item_set {
                 let errors = Errors::new();
                 let mut $ident = Self::new();
                 let paths = paths.into_iter();
-                parse_struct(inputs.iter().cloned(), |input, p, _| {
+                parse_struct(inputs.iter().cloned(), |input, p, pspan| {
                     if paths.clone().any(|path| path.as_ref() == p) {
                         let span = input.span();
-                        let $item = parse_named_meta_item(input)?;
+                        let $item = parse_named_meta_item(input, pspan)?;
                         let span = input.span().join(span).unwrap();
                         if !$push {
                             errors.push(span, "Duplicate key");
@@ -437,7 +462,7 @@ macro_rules! impl_parse_meta_item_map {
         impl<$kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)?, $vp: ParseMetaItem> ParseMetaItem for $ty <$kp, $vp> {
             #[inline]
             fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-                Brace::parse_delimited_meta_item(input, ParseMode::Named)
+                Brace::parse_delimited_meta_item(input, _mode)
             }
             #[inline]
             fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
@@ -447,10 +472,10 @@ macro_rules! impl_parse_meta_item_map {
                     if input.is_empty() {
                         break;
                     }
-                    let span = input.span();
+                    let start = input.span();
                     let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
-                    let span = input.span().join(span).unwrap();
-                    let $value = parse_named_meta_item(input)?;
+                    let span = input.span().join(start).unwrap();
+                    let $value = parse_named_meta_item(input, start)?;
                     if !$push {
                         errors.push(span, "Duplicate key");
                     }
@@ -463,7 +488,11 @@ macro_rules! impl_parse_meta_item_map {
             }
         }
 
-        impl<$kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)? + AsRef<syn::Path>, $vp: ParseMetaItem> ParseMetaRest for $ty <$kp, $vp> {
+        impl<$kp, $vp> ParseMetaRest for $ty <$kp, $vp>
+        where
+            $kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)? + std::borrow::Borrow<syn::Path>,
+            $vp: ParseMetaItem,
+        {
             fn parse_meta_rest(
                 inputs: &[ParseStream],
                 exclude: &[&str],
@@ -475,13 +504,13 @@ macro_rules! impl_parse_meta_item_map {
                         if input.is_empty() {
                             break;
                         }
-                        let span = input.span();
+                        let start = input.span();
                         let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
-                        if exclude.contains(&path_to_string($key.as_ref()).as_str()) {
+                        if exclude.contains(&path_to_string($key.borrow()).as_str()) {
                             skip_named_meta_item(input);
                         } else {
-                            let span = input.span().join(span).unwrap();
-                            let $value = parse_named_meta_item(input)?;
+                            let span = input.span().join(start).unwrap();
+                            let $value = parse_named_meta_item(input, start)?;
                             if !$push {
                                 errors.push(span, "Duplicate key");
                             }
@@ -571,36 +600,6 @@ impl<T: ParseMetaItem, P: Parse + Default> ParseMetaFlatUnnamed for Punctuated<T
     }
 }
 
-impl<T: ParseMetaItem, P: Parse + Default> ParseMetaAppend for Punctuated<T, P> {
-    fn parse_meta_append<I, S>(inputs: &[ParseStream], paths: I) -> Result<Self>
-    where
-        I: IntoIterator<Item = S>,
-        I::IntoIter: Clone,
-        S: AsRef<str>,
-    {
-        let mut punct = Punctuated::new();
-        let paths = paths.into_iter();
-        for input in inputs {
-            loop {
-                if input.is_empty() {
-                    break;
-                }
-                let path = input.call(syn::Path::parse_mod_style)?;
-                let p = path_to_string(&path);
-                if paths.clone().any(|path| path.as_ref() == p.as_str()) {
-                    punct.push(T::parse_meta_item(input, ParseMode::Unnamed)?);
-                } else {
-                    skip_named_meta_item(input);
-                }
-                if !input.is_empty() {
-                    input.parse::<P>()?;
-                }
-            }
-        }
-        Ok(punct)
-    }
-}
-
 macro_rules! impl_parse_meta_item_syn {
     ($ty:ty) => {
         impl ParseMetaItem for $ty {
@@ -618,7 +617,7 @@ macro_rules! impl_parse_meta_paren_item_syn {
             #[inline]
             fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
                 match mode {
-                    ParseMode::Named => {
+                    ParseMode::Named(_) => {
                         let content = Paren::parse_delimited(input)?;
                         let ret = content.parse()?;
                         content.parse::<Nothing>()?;

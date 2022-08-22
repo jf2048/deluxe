@@ -1,5 +1,7 @@
 #![no_implicit_prelude]
 
+use ::quote::quote as q;
+
 mod test_util;
 use test_util::*;
 
@@ -8,10 +10,10 @@ struct MyUnit;
 
 #[test]
 fn parse_unit() {
-    let parse = parse_str::<MyUnit>;
-    ::std::assert_eq!(parse("()").unwrap(), MyUnit);
+    let parse = parse_meta::<MyUnit>;
+    ::std::assert_eq!(parse(q! { () }).unwrap(), MyUnit);
     ::std::assert_eq!(
-        parse("(1)").unwrap_err().to_multi_string(),
+        parse(q! { (1) }).unwrap_err().to_multi_string(),
         "unexpected token"
     );
 }
@@ -21,10 +23,10 @@ struct MyUnnamedEmpty();
 
 #[test]
 fn parse_unnamed_empty() {
-    let parse = parse_str::<MyUnnamedEmpty>;
-    ::std::assert_eq!(parse("()").unwrap(), MyUnnamedEmpty());
+    let parse = parse_meta::<MyUnnamedEmpty>;
+    ::std::assert_eq!(parse(q! { () }).unwrap(), MyUnnamedEmpty());
     ::std::assert_eq!(
-        parse("(1)").unwrap_err().to_multi_string(),
+        parse(q! { (1) }).unwrap_err().to_multi_string(),
         "unexpected token"
     );
 }
@@ -36,11 +38,11 @@ struct MyNewtype(::std::string::String);
 #[test]
 fn parse_newtype() {
     use ::std::prelude::v1::*;
-    let parse = parse_str::<MyNewtype>;
+    let parse = parse_meta::<MyNewtype>;
 
-    ::std::assert_eq!(parse("\"qwerty\"").unwrap(), MyNewtype("qwerty".into()));
+    ::std::assert_eq!(parse(q! { "qwerty" }).unwrap(), MyNewtype("qwerty".into()));
     ::std::assert_eq!(
-        parse("123").unwrap_err().to_multi_string(),
+        parse(q! { 123 }).unwrap_err().to_multi_string(),
         "expected string literal"
     );
 }
@@ -51,18 +53,20 @@ struct MyUnnamed(i32, ::std::string::String);
 #[test]
 fn parse_unnamed() {
     use ::std::prelude::v1::*;
-    let parse = parse_str::<MyUnnamed>;
+    let parse = parse_meta::<MyUnnamed>;
 
     ::std::assert_eq!(
-        parse("(123, \"abc\")").unwrap(),
+        parse(q! { (123, "abc") }).unwrap(),
         MyUnnamed(123, "abc".into())
     );
     ::std::assert_eq!(
-        parse("(123)").unwrap_err().to_multi_string(),
+        parse(q! { (123) }).unwrap_err().to_multi_string(),
         "missing required field 1"
     );
     ::std::assert_eq!(
-        parse("(123, \"abc\", true)").unwrap_err().to_multi_string(),
+        parse(q! { (123, "abc", true) })
+            .unwrap_err()
+            .to_multi_string(),
         "unexpected token"
     );
 }
@@ -72,11 +76,11 @@ struct MyNamedEmpty {}
 
 #[test]
 fn parse_named_empty() {
-    let parse = parse_str::<MyNamedEmpty>;
+    let parse = parse_meta::<MyNamedEmpty>;
 
-    ::std::assert_eq!(parse("{}").unwrap(), MyNamedEmpty {});
+    ::std::assert_eq!(parse(q! { {} }).unwrap(), MyNamedEmpty {});
     ::std::assert_eq!(
-        parse("{a = 123}").unwrap_err().to_multi_string(),
+        parse(q! { {a = 123} }).unwrap_err().to_multi_string(),
         "unknown field `a`"
     );
 
@@ -92,37 +96,37 @@ struct MyNamed {
 #[test]
 fn parse_named() {
     use ::std::prelude::v1::*;
-    let parse = parse_str::<MyNamed>;
+    let parse = parse_meta::<MyNamed>;
 
     let t = MyNamed {
         a: 123,
         b: "asdf".into(),
     };
-    ::std::assert_eq!(parse("{a = 123, b = \"asdf\"}").unwrap(), t);
-    ::std::assert_eq!(parse("{a(123), b = \"asdf\"}").unwrap(), t);
-    ::std::assert_eq!(parse("{a = 123, b(\"asdf\")}").unwrap(), t);
-    ::std::assert_eq!(parse("{a(123), b(\"asdf\")}").unwrap(), t);
+    ::std::assert_eq!(parse(q! { {a = 123, b = "asdf"} }).unwrap(), t);
+    ::std::assert_eq!(parse(q! { {a(123), b = "asdf"} }).unwrap(), t);
+    ::std::assert_eq!(parse(q! { {a = 123, b("asdf")} }).unwrap(), t);
+    ::std::assert_eq!(parse(q! { {a(123), b("asdf")} }).unwrap(), t);
 
     ::std::assert_eq!(
-        parse("{}").unwrap_err().to_multi_string(),
+        parse(q! { {} }).unwrap_err().to_multi_string(),
         "missing required field `a`, missing required field `b`"
     );
     ::std::assert_eq!(
-        parse("{b(\"asdf\")}").unwrap_err().to_multi_string(),
+        parse(q! { {b("asdf")} }).unwrap_err().to_multi_string(),
         "missing required field `a`"
     );
     ::std::assert_eq!(
-        parse("{a(123)}").unwrap_err().to_multi_string(),
+        parse(q! { {a(123)} }).unwrap_err().to_multi_string(),
         "missing required field `b`"
     );
     ::std::assert_eq!(
-        parse("{a(123), b(\"asdf\"), c(true)}")
+        parse(q! { {a(123), b("asdf"), c(true)} })
             .unwrap_err()
             .to_multi_string(),
         "unknown field `c`"
     );
     ::std::assert_eq!(
-        parse("{a(123), b(\"asdf\"), a(456)}")
+        parse(q! { {a(123), b("asdf"), a(456)} })
             .unwrap_err()
             .to_multi_string(),
         "duplicate attribute for `a`"
@@ -139,7 +143,7 @@ struct MyNamedChild {
 #[test]
 fn parse_named_flat() {
     use ::std::prelude::v1::*;
-    let parse = parse_str::<MyNamedChild>;
+    let parse = parse_meta::<MyNamedChild>;
 
     let t = MyNamedChild {
         c: 900,
@@ -148,9 +152,9 @@ fn parse_named_flat() {
             b: "qwerty".into(),
         },
     };
-    ::std::assert_eq!(parse("{a = 100, b = \"qwerty\", c = 900}").unwrap(), t);
+    ::std::assert_eq!(parse(q! { {a = 100, b = "qwerty", c = 900} }).unwrap(), t);
     ::std::assert_eq!(
-        parse("{}").unwrap_err().to_multi_string(),
+        parse(q! { {} }).unwrap_err().to_multi_string(),
         "missing required field `a`, missing required field `b`, missing required field `c`"
     );
 }
@@ -165,7 +169,7 @@ struct MyNamedChildPrefixed {
 #[test]
 fn parse_named_flat_prefixed() {
     use ::std::prelude::v1::*;
-    let parse = parse_str::<MyNamedChildPrefixed>;
+    let parse = parse_meta::<MyNamedChildPrefixed>;
 
     let t = MyNamedChildPrefixed {
         c: 900,
@@ -175,11 +179,11 @@ fn parse_named_flat_prefixed() {
         },
     };
     ::std::assert_eq!(
-        parse("{d::a = 100, d::b = \"qwerty\", c = 900}").unwrap(),
+        parse(q! { {d::a = 100, d::b = "qwerty", c = 900} }).unwrap(),
         t
     );
     ::std::assert_eq!(
-        parse("{}").unwrap_err().to_multi_string(),
+        parse(q! { {} }).unwrap_err().to_multi_string(),
         "missing required field `d::a`, missing required field `d::b`, missing required field `c`"
     );
 }
@@ -189,12 +193,14 @@ struct MyNamedChildLongPrefixed {
     c: i32,
     #[deluxe(flatten(prefix = d::e))]
     d: MyNamed,
+    #[deluxe(flatten(prefix = d::e2))]
+    d2: MyNamed,
 }
 
 #[test]
 fn parse_named_flat_long_prefixed() {
     use ::std::prelude::v1::*;
-    let parse = parse_str::<MyNamedChildLongPrefixed>;
+    let parse = parse_meta::<MyNamedChildLongPrefixed>;
 
     let t = MyNamedChildLongPrefixed {
         c: 900,
@@ -202,13 +208,22 @@ fn parse_named_flat_long_prefixed() {
             a: 100,
             b: "qwerty".into(),
         },
+        d2: MyNamed {
+            a: 200,
+            b: "uiop".into(),
+        },
     };
     ::std::assert_eq!(
-        parse("{d::e::a = 100, d::e::b = \"qwerty\", c = 900}").unwrap(),
+        parse(
+            q! { {d::e::a = 100, d::e::b = "qwerty", d::e2::b = "uiop", d::e2::a = 200, c = 900} }
+        )
+        .unwrap(),
         t
     );
     ::std::assert_eq!(
-        parse("{}").unwrap_err().to_multi_string(),
-        "missing required field `d::e::a`, missing required field `d::e::b`, missing required field `c`"
+        parse(q! { {} }).unwrap_err().to_multi_string(),
+        "missing required field `d::e::a`, missing required field `d::e::b`, \
+        missing required field `d::e2::a`, missing required field `d::e2::b`, \
+        missing required field `c`"
     );
 }

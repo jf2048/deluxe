@@ -51,19 +51,19 @@
 //!     version: Option<String>,
 //! }
 //!
-//! fn my_derive(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
-//!     let input = syn::parse::<syn::DeriveInput>(item).unwrap();
+//! fn my_derive(item: proc_macro2::TokenStream) -> deluxe::Result<proc_macro2::TokenStream> {
+//!     let mut input = syn::parse2::<syn::DeriveInput>(item)?;
 //!
-//!     // Get some info to generate an associated function...
-//!     let ident = &input.ident;
-//!     let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
-//!
-//!     // Now extract the attributes!
-//!     let MyDescription { name, version } = deluxe::extract_attributes(&mut input).unwrap();
+//!     // Extract the attributes!
+//!     let MyDescription { name, version } = deluxe::extract_attributes(&mut input)?;
 //!     // Convert to an Iterator so `quote` can make the surrounding tokens optional.
 //!     let version = version.into_iter();
 //!
-//!     let tokens = quote::quote! {
+//!     // Now get some info to generate an associated function...
+//!     let ident = &input.ident;
+//!     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
+//!
+//!     Ok(quote::quote! {
 //!         impl #impl_generics #ident #type_generics #where_clause {
 //!             fn my_desc() -> String {
 //!                 let mut s = String::new();
@@ -76,9 +76,13 @@
 //!                 s
 //!             }
 //!         }
-//!     };
-//!     tokens.into()
+//!     })
 //! }
+//!
+//! # my_derive(quote::quote! {
+//! #     #[my_desc(name = "hello world", version = "0.2")]
+//! #     struct Hello;
+//! # }).unwrap();
 //! ```
 //!
 //! Then, try adding the attribute in some code that uses your macro:
@@ -123,12 +127,13 @@ pub mod ____private {
     pub use syn::{parse::ParseStream, Error, Ident, Path};
 }
 
-pub use deluxe_core::{
-    with, Error, ExtractAttributes, HasAttributes, ParseAttributes, ParseMetaItem, Result,
-};
 #[doc(hidden)]
 pub use deluxe_core::{
-    Errors, ParseMetaAppend, ParseMetaFlatNamed, ParseMetaFlatUnnamed, ParseMetaRest, ParseMode,
+    parse_named_meta_item_with, Errors, ParseMetaAppend, ParseMetaFlatNamed, ParseMetaFlatUnnamed,
+    ParseMetaRest, ParseMode, ToContainer,
+};
+pub use deluxe_core::{
+    with, Error, ExtractAttributes, HasAttributes, ParseAttributes, ParseMetaItem, Result,
 };
 pub use deluxe_macros::*;
 

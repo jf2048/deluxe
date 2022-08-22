@@ -55,7 +55,7 @@ fn impl_for_struct<'i>(
     let parse = struct_attr
         .as_ref()
         .map(|s| {
-            let ItemDef { parse, inline, .. } = s.to_parsing_tokens(
+            let ItemDef { inline, .. } = s.to_parsing_tokens(
                 &struct_.fields,
                 crate_,
                 mode.into_token_mode(),
@@ -75,10 +75,8 @@ fn impl_for_struct<'i>(
                     let allowed = #field_names;
                     let prefix = "";
                 )*
-                let inline = |input: #priv_::ParseStream<'_>| {
-                    #inline
-                };
-                #parse
+                let validate = true;
+                #inline
             }
         })
         .unwrap_or_else(|| {
@@ -131,7 +129,7 @@ fn impl_for_enum<'i>(
     let parse = enum_attr
         .as_ref()
         .map(|e| {
-            let parse = e.to_parsing_tokens(crate_, mode.into_token_mode());
+            let parse = e.to_inline_parsing_tokens(crate_, mode.into_token_mode());
             let field_names = e.to_field_names_tokens(crate_, priv_);
             quote_spanned! { Span::mixed_site() =>
                 let allowed = #field_names;
@@ -201,56 +199,65 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
     let mut generics = input.generics.clone();
 
     let mut container_is_generic = false;
+    let mut container_is_ref = false;
     let mut container_ty = container_ty.map(Cow::Owned);
-    if container_ty.is_none() || container_lifetime.is_none() {
-        if let Some(container_field) = container_field {
-            let mut ty = &container_field.ty;
+    if let Some(container_field) = container_field {
+        let mut ty = &container_field.ty;
+        if_chain::if_chain! {
+            if let syn::Type::Path(path) = ty;
+            if path.qself.is_none();
+            if let Some(last) = path.path.segments.last();
+            if last.ident == "Option";
+            if let syn::PathArguments::AngleBracketed(args) = &last.arguments;
+            if args.args.len() == 1;
+            if let syn::GenericArgument::Type(t) = &args.args[0];
+            then {
+                ty = t;
+            }
+        }
+        if let syn::Type::Reference(ref_) = ty {
+            if container_lifetime.is_none() {
+                container_lifetime = ref_.lifetime.clone();
+            }
+            container_is_ref = true;
+            ty = &*ref_.elem;
+        }
+        if container_ty.is_none() {
+            container_ty = Some(Cow::Borrowed(ty));
             if_chain::if_chain! {
                 if let syn::Type::Path(path) = ty;
                 if path.qself.is_none();
-                if let Some(last) = path.path.segments.last();
-                if last.ident == "Option";
-                if let syn::PathArguments::AngleBracketed(args) = &last.arguments;
-                if args.args.len() == 1;
-                if let syn::GenericArgument::Type(t) = &args.args[0];
+                if let Some(ident) = path.path.get_ident();
+                if generics.type_params().any(|p| p.ident == *ident);
                 then {
-                    ty = t;
-                }
-            }
-            if let syn::Type::Reference(ref_) = ty {
-                if container_lifetime.is_none() {
-                    container_lifetime = ref_.lifetime.clone();
-                }
-                ty = &*ref_.elem;
-            }
-            if container_ty.is_none() {
-                container_ty = Some(Cow::Borrowed(ty));
-                if_chain::if_chain! {
-                    if let syn::Type::Path(path) = ty;
-                    if path.qself.is_none();
-                    if let Some(ident) = path.path.get_ident();
-                    if generics.type_params().any(|p| p.ident == *ident);
-                    then {
-                        container_is_generic = true;
-                    }
+                    container_is_generic = true;
                 }
             }
         }
     }
     let container_ty = container_ty.unwrap_or_else(|| {
         container_is_generic = true;
-        let mut has_attr_ty = String::from("T");
-        while generics.type_params().any(|p| p.ident == has_attr_ty) {
-            has_attr_ty.push('_');
+        let mut ty = String::from("T");
+        while generics.type_params().any(|p| p.ident == ty) {
+            ty.push('_');
         }
-        let has_attr_ty = syn::Ident::new(&has_attr_ty, Span::mixed_site());
-        Cow::Owned(syn::parse_quote_spanned! { Span::mixed_site() => #has_attr_ty })
+        let ty = syn::Ident::new(&ty, Span::mixed_site());
+        generics.params.insert(0, syn::parse_quote! { #ty });
+        Cow::Owned(syn::parse_quote_spanned! { Span::mixed_site() => #ty })
     });
 
+    if !container_is_ref {
+        let where_clause = generics.make_where_clause();
+        where_clause.predicates.push(syn::parse_quote! {
+            #container_ty: #priv_::Clone
+        });
+    }
+
     if container_is_generic {
-        generics
-            .params
-            .insert(0, syn::parse_quote! { #container_ty });
+        let where_clause = generics.make_where_clause();
+        where_clause.predicates.push(syn::parse_quote! {
+            #container_ty: #crate_::HasAttributes
+        });
     }
 
     if mode == Mode::Parse && container_lifetime.is_none() {
@@ -258,17 +265,15 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
         while generics.lifetimes().any(|l| l.lifetime.ident == lt) {
             lt.push('_');
         }
+        lt.insert(0, '\'');
         container_lifetime = Some(syn::Lifetime::new(&lt, Span::mixed_site()));
         generics
             .params
             .insert(0, syn::parse_quote! { #container_lifetime });
-        let where_clause = generics.make_where_clause();
-        where_clause.predicates.push(syn::parse_quote! {
-            #container_ty: #crate_::HasAttributes
-        });
     }
 
-    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
+    let (_, type_generics, _) = input.generics.split_for_impl();
+    let (impl_generics, _, where_clause) = generics.split_for_impl();
 
     let matches = if attributes.is_empty() {
         quote_spanned! { Span::mixed_site() => true }
@@ -282,36 +287,40 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
         }
     };
 
-    let trait_ = match mode {
-        Mode::Parse => quote_spanned! { Span::mixed_site() =>
-            fn parse_attributes(obj: &#container_lifetime #container_ty) -> crate::Result<Self>
-        },
-        Mode::Extract => quote_spanned! { Span::mixed_site() =>
-            fn extract_attributes(obj: &mut #container_ty) -> crate::Result<Self>
-        },
-    };
     let sig = match mode {
         Mode::Parse => quote_spanned! { Span::mixed_site() =>
-            crate::ParseAttributes<#container_lifetime, #container_ty>
+            fn parse_attributes(obj: &#container_lifetime #container_ty) -> #crate_::Result<Self>
         },
         Mode::Extract => quote_spanned! { Span::mixed_site() =>
-            crate::ExtractAttributes<#container_ty>
+            fn extract_attributes(obj: &mut #container_ty) -> #crate_::Result<Self>
+        },
+    };
+    let trait_ = match mode {
+        Mode::Parse => quote_spanned! { Span::mixed_site() =>
+            #crate_::ParseAttributes<#container_lifetime, #container_ty>
+        },
+        Mode::Extract => quote_spanned! { Span::mixed_site() =>
+            #crate_::ExtractAttributes<#container_ty>
         },
     };
     let get_tokens = match mode {
         Mode::Parse => quote_spanned! { Span::mixed_site() => ref_tokens },
         Mode::Extract => quote_spanned! { Span::mixed_site() => take_tokens },
     };
+    let tokens_try = match mode {
+        Mode::Parse => None,
+        Mode::Extract => Some(quote_spanned! { Span::mixed_site() => ? }),
+    };
 
     quote_spanned! { Span::mixed_site() =>
         impl #impl_generics #trait_ for #ident #type_generics #where_clause {
             #[inline]
-            fn path_matches(path: &private::Path) -> private::bool {
+            fn path_matches(path: &#priv_::Path) -> #priv_::bool {
                 #matches
             }
             #sig {
-                parse_helpers::parse_struct_attr_tokens(
-                    parse_helpers::#get_tokens::<Self, _>(obj),
+                #priv_::parse_helpers::parse_struct_attr_tokens(
+                    #priv_::parse_helpers::#get_tokens::<Self, _>(obj) #tokens_try,
                     |inputs| {
                         #parse
                     }

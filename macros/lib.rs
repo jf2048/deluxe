@@ -22,11 +22,11 @@ use proc_macro::TokenStream;
 ///   function will remove any attributes matching the paths listed in
 ///   [`#[deluxe(attributes(...))]`](ParseAttributes#deluxeattributes).
 ///
-/// - The `lifetime` parameter on
-///   [`#[deluxe(container)]`](ParseAttributes#deluxecontainerlifetime--t-ty--pathmytype) will be
-///   ignored, and reference types for container fields will not work. The container type must be
-///   an owned type or an [`Option`], and the container will always be [`clone`](Clone::clone)d
-///   into the field. The cloning will happen after the attributes have been extracted.
+/// - Reference types for [`#[deluxe(container)]`](ParseAttributes#deluxecontainer) fields will not
+///   work. The container type must be an owned type or an [`Option`], and the container will
+///   always be [`clone`](Clone::clone)d into the field. The cloning will happen after the
+///   attributes have been extracted. Using the `lifetime` parameter for custom container types
+///   will also not work.
 ///
 /// See the [`ParseAttributes`] and [`ParseMetaItem`] documentation for all other details.
 #[proc_macro_derive(ExtractAttributes, attributes(deluxe))]
@@ -64,32 +64,43 @@ pub fn derive_extract_attributes(item: TokenStream) -> TokenStream {
 ///
 /// The following extra attributes are supported on struct fields and enum fields:
 ///
-/// - ##### `#[deluxe(container(lifetime = 't, ty = path::MyType)]`
+/// - ##### `#[deluxe(container)]`
 ///
 ///   Specifies that this field should store the current `obj` being parsed by
-///   [`parse_attributes`](deluxe_core::ParseAttributes::parse_attributes). The field can be an
-///   [`Option`] or a reference type, in which case the `lifetime` and `ty` arguments can be used
-///   to fill in the correct trait bounds on [`ParseAttributes`](deluxe_core::ParseAttributes). The
-///   `lifetime` and `ty` arguments can likely be omitted if this is a plain type, reference type,
-///   [`Option`], or [`Option`] containing a reference. In those cases the container will be
-///   [`clone`](Clone::clone)d into the field.
+///   [`parse_attributes`](deluxe_core::ParseAttributes::parse_attributes). The field can be a
+///   value type, an [`Option`], or a reference type. If the field is not a reference type, the
+///   container will be [`clone`](Clone::clone)d into the field.
 ///
-///   If the container field is an [`Option`], then it can additionally be marked as
-///   [`#[deluxe(default)]`](ParseMetaItem#deluxedefault-1). This is useful if the struct/enum also
-///   derives [`ParseMetaItem`]. In that case, the container will be `None` when calling
-///   [`parse_meta_item`](deluxe_core::ParseMetaItem::parse_meta_item), but will be `Some` when
-///   calling [`parse_attributes`](deluxe_core::ParseAttributes::parse_attributes).
+///   If the struct/enum also derives [`ParseMetaItem`], then
+///   [`#[deluxe(default)]`](ParseMetaItem#deluxedefault-1) is implied on any container fields. In
+///   that case, a common pattern is to use an [`Option`] as the container field. It will be set to
+///   `None` when calling [`parse_meta_item`](deluxe_core::ParseMetaItem::parse_meta_item), but
+///   will be `Some` when calling
+///   [`parse_attributes`](deluxe_core::ParseAttributes::parse_attributes).
 ///
 ///   If used within an enum, only the first container field will supply the trait bounds. Any
 ///   other container fields in other variants must have a compatible type and lifetime.
 ///
-///   Fields with this attribute can safely be used with
-///   [`#[deluxe(transparent)]`](ParseMetaItem#deluxetransparent). They do not count as a parseable
-///   field, as container fields are never parsed from tokens.
+///   Fields with this attribute can safely be added to a struct using
+///   [`#[deluxe(transparent)]`](ParseMetaItem#deluxetransparent). Container fields do not count as
+///   a parseable field, as they are never parsed from tokens.
+///
+/// - ##### `#[deluxe(container(lifetime = 't, ty = path::MyType)]`
+///
+///   Specifies that this field should store the current `obj` being parsed by
+///   [`parse_attributes`](deluxe_core::ParseAttributes::parse_attributes), with a custom lifetime
+///   and type bound used for the [`ParseAttributes`](deluxe_core::ParseAttributes) trait
+///   implementation.
+///
+///   Normally the `lifetime` and `ty` are not needed when using
+///   [`#[deluxe(container)]`](#deluxecontainer) because the macro can infer the lifetime and type
+///   from the field itself. If Deluxe is unable to infer them, these attributes can be supplied to
+///   manually provide the lifetime and type. `lifetime` can be omitted if the container is an
+///   owning type.
 ///
 ///   This attribute is implemented by calling methods on the
 ///   [`ToContainer`](deluxe_core::ToContainer) trait. Other container types besides references and
-///   [`Option`] can be supported by providing additional implementations for that trait.
+///   [`Option`] will also need to provide an implementation for that trait.
 #[proc_macro_derive(ParseAttributes, attributes(deluxe))]
 pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
     let errors = Errors::new();
@@ -124,6 +135,11 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///   it were the inner field. The field cannot be [`flatten`](#deluxeflatten-1),
 ///   [`append`](#deluxeappend) or [`rest`](#deluxerest). The struct can still contain
 ///   fields that are [`skip`](#deluxeskip), as those will be ignored by `transparent`.
+///
+///   Currently, when including a type that is `transparent` in another struct/enum, it is also not
+///   possible to use [`flatten`](#deluxeflatten-1), [`append`](#deluxeappend) or
+///   [`rest`](#deluxerest) on it. This limitation happens because Deluxe does not know which
+///   traits to implement. As a workaround, those traits can be manually implemented if necessary.
 ///
 /// - ##### `#[deluxe(allow_unknown_fields)]`
 ///
