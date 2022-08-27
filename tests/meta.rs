@@ -5,7 +5,13 @@ use ::quote::quote as q;
 mod test_util;
 use test_util::*;
 
-#[derive(::deluxe::ParseMetaItem, PartialEq, Debug)]
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
 struct MyUnit;
 
 #[test]
@@ -18,7 +24,13 @@ fn parse_unit() {
     );
 }
 
-#[derive(::deluxe::ParseMetaItem, PartialEq, Debug)]
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
 struct MyUnnamedEmpty();
 
 #[test]
@@ -31,7 +43,13 @@ fn parse_unnamed_empty() {
     );
 }
 
-#[derive(::deluxe::ParseMetaItem, PartialEq, Debug)]
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
 #[deluxe(transparent)]
 struct MyNewtype(::std::string::String);
 
@@ -47,7 +65,13 @@ fn parse_newtype() {
     );
 }
 
-#[derive(::deluxe::ParseMetaItem, PartialEq, Debug)]
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
 struct MyUnnamed(i32, ::std::string::String);
 
 #[test]
@@ -71,7 +95,13 @@ fn parse_unnamed() {
     );
 }
 
-#[derive(::deluxe::ParseMetaItem, PartialEq, Debug)]
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
 struct MyNamedEmpty {}
 
 #[test]
@@ -87,7 +117,13 @@ fn parse_named_empty() {
     ::std::assert_eq!(parse_flag::<MyNamedEmpty>().unwrap(), MyNamedEmpty {});
 }
 
-#[derive(::deluxe::ParseMetaItem, PartialEq, Debug)]
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
 struct MyNamed {
     a: i32,
     b: ::std::string::String,
@@ -133,7 +169,13 @@ fn parse_named() {
     );
 }
 
-#[derive(::deluxe::ParseMetaItem, PartialEq, Debug)]
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
 struct MyNamedChild {
     c: i32,
     #[deluxe(flatten)]
@@ -159,7 +201,13 @@ fn parse_named_flat() {
     );
 }
 
-#[derive(::deluxe::ParseMetaItem, PartialEq, Debug)]
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
 struct MyNamedChildPrefixed {
     c: i32,
     #[deluxe(flatten(prefix = d))]
@@ -188,7 +236,13 @@ fn parse_named_flat_prefixed() {
     );
 }
 
-#[derive(::deluxe::ParseMetaItem, PartialEq, Debug)]
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
 struct MyNamedChildLongPrefixed {
     c: i32,
     #[deluxe(flatten(prefix = d::e))]

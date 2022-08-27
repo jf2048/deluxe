@@ -19,11 +19,11 @@ pub mod from_str {
         T::from_str(&s.value()).map_err(|e| Error::new_spanned(s, e.to_string()))
     }
     #[inline]
-    pub fn parse_meta_item_inline<T: FromStr>(input: ParseStream, _mode: ParseMode) -> Result<T>
+    pub fn parse_meta_item_inline<T: FromStr>(inputs: &[ParseStream], mode: ParseMode) -> Result<T>
     where
         T::Err: std::fmt::Display,
     {
-        parse_meta_item(input, _mode)
+        crate::parse_helpers::parse_first(inputs, mode, |input| parse_meta_item(input, mode))
     }
     #[inline]
     pub fn parse_meta_item_flag<T: Default>(_span: proc_macro2::Span) -> Result<T> {
@@ -45,8 +45,8 @@ pub mod mod_path {
         input.call(syn::Path::parse_mod_style)
     }
     #[inline]
-    pub fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<syn::Path> {
-        parse_meta_item(input, _mode)
+    pub fn parse_meta_item_inline(inputs: &[ParseStream], mode: ParseMode) -> Result<syn::Path> {
+        crate::parse_helpers::parse_first(inputs, mode, |input| parse_meta_item(input, mode))
     }
     #[inline]
     pub fn parse_meta_item_flag(span: proc_macro2::Span) -> Result<syn::Path> {
@@ -83,9 +83,12 @@ pub mod mod_path_vec {
         )
     }
     #[inline]
-    pub fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Vec<syn::Path>> {
+    pub fn parse_meta_item_inline(
+        inputs: &[ParseStream],
+        _mode: ParseMode,
+    ) -> Result<Vec<syn::Path>> {
         Ok(
-            <Vec<ModPath> as crate::ParseMetaItem>::parse_meta_item_inline(input, _mode)?
+            <Vec<ModPath> as crate::ParseMetaItem>::parse_meta_item_inline(inputs, _mode)?
                 .into_iter()
                 .map(|p| p.0)
                 .collect(),

@@ -114,17 +114,22 @@ pub mod ____private {
     pub use once_cell::sync::OnceCell as SyncOnceCell;
     pub use proc_macro2::Span;
     pub use std::{
-        borrow::Cow,
+        borrow::{Borrow, Cow},
         clone::Clone,
+        convert::AsRef,
         default::Default,
         format_args,
+        iter::IntoIterator,
         option::Option,
         primitive::{bool, str, usize},
         string::ToString,
         unreachable,
         vec::Vec,
     };
-    pub use syn::{parse::ParseStream, Error, Ident, Path};
+    pub use syn::{
+        parse::{ParseBuffer, ParseStream},
+        Error, Ident, Path,
+    };
 }
 
 #[doc(hidden)]

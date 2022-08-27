@@ -1,11 +1,15 @@
 use proc_macro2::{Span, TokenStream};
 use std::{
+    borrow::Borrow,
     cell::RefCell,
     fmt::Display,
     hash::Hash,
     ops::{Deref, DerefMut},
 };
-use syn::spanned::Spanned;
+use syn::{
+    parse::{ParseBuffer, ParseStream},
+    spanned::Spanned,
+};
 
 use crate::{parse_helpers::inputs_span, parse_meta::*};
 
@@ -225,17 +229,22 @@ impl<T> Spanned for SpannedValue<T> {
 
 impl<T: ParseMetaItem> ParseMetaItem for SpannedValue<T> {
     #[inline]
-    fn parse_meta_item(input: syn::parse::ParseStream, mode: crate::ParseMode) -> Result<Self> {
+    fn parse_meta_item(input: ParseStream, mode: crate::ParseMode) -> Result<Self> {
         let span = input.span();
         let value = T::parse_meta_item(input, mode)?;
         let span = input.span().join(span).unwrap();
         Ok(Self { value, span })
     }
     #[inline]
-    fn parse_meta_item_inline(input: syn::parse::ParseStream, mode: ParseMode) -> Result<Self> {
-        let span = input.span();
-        let value = T::parse_meta_item_inline(input, mode)?;
-        let span = input.span().join(span).unwrap();
+    fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        mode: ParseMode,
+    ) -> Result<Self> {
+        let span = inputs.first().map(|p| p.borrow().span());
+        let value = T::parse_meta_item_inline(inputs, mode)?;
+        let span = span
+            .and_then(|s| inputs.last().and_then(|p| p.borrow().span().join(s)))
+            .unwrap_or_else(Span::call_site);
         Ok(Self { value, span })
     }
     #[inline]
@@ -252,7 +261,10 @@ impl<T: ParseMetaFlatUnnamed> ParseMetaFlatUnnamed for SpannedValue<T> {
     fn field_count() -> Option<usize> {
         T::field_count()
     }
-    fn parse_meta_flat_unnamed(inputs: &[syn::parse::ParseStream], index: usize) -> Result<Self> {
+    fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        index: usize,
+    ) -> Result<Self> {
         let mut span = crate::parse_helpers::inputs_span(inputs);
         let value = T::parse_meta_flat_unnamed(inputs, index)?;
         if let Some(closed) = span.join(inputs_span(inputs)) {
@@ -268,8 +280,8 @@ impl<T: ParseMetaFlatNamed> ParseMetaFlatNamed for SpannedValue<T> {
     fn field_names() -> &'static [&'static str] {
         T::field_names()
     }
-    fn parse_meta_flat_named(
-        inputs: &[syn::parse::ParseStream],
+    fn parse_meta_flat_named<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
         prefix: &str,
         validate: bool,
     ) -> Result<Self> {
@@ -283,11 +295,12 @@ impl<T: ParseMetaFlatNamed> ParseMetaFlatNamed for SpannedValue<T> {
 }
 
 impl<T: ParseMetaAppend> ParseMetaAppend for SpannedValue<T> {
-    fn parse_meta_append<I, S>(inputs: &[syn::parse::ParseStream], paths: I) -> Result<Self>
+    fn parse_meta_append<'s, S, I, P>(inputs: &[S], paths: I) -> Result<Self>
     where
-        I: IntoIterator<Item = S>,
+        S: Borrow<ParseBuffer<'s>>,
+        I: IntoIterator<Item = P>,
         I::IntoIter: Clone,
-        S: AsRef<str>,
+        P: AsRef<str>,
     {
         let mut span = inputs_span(inputs);
         let value = T::parse_meta_append(inputs, paths)?;
@@ -299,7 +312,10 @@ impl<T: ParseMetaAppend> ParseMetaAppend for SpannedValue<T> {
 }
 
 impl<T: ParseMetaRest> ParseMetaRest for SpannedValue<T> {
-    fn parse_meta_rest(inputs: &[syn::parse::ParseStream], exclude: &[&str]) -> Result<Self> {
+    fn parse_meta_rest<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        exclude: &[&str],
+    ) -> Result<Self> {
         let mut span = inputs_span(inputs);
         let value = T::parse_meta_rest(inputs, exclude)?;
         if let Some(closed) = span.join(inputs_span(inputs)) {

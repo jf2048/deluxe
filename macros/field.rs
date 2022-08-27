@@ -2,10 +2,14 @@ use deluxe_core::{parse_helpers, ParseAttributes, ParseMode, Result, SpannedValu
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
 use std::{
-    borrow::Cow,
+    borrow::{Borrow, Cow},
     collections::{BTreeMap, BTreeSet, HashSet},
 };
-use syn::{parse::ParseStream, parse_quote_spanned, spanned::Spanned};
+use syn::{
+    parse::{ParseBuffer, ParseStream},
+    parse_quote_spanned,
+    spanned::Spanned,
+};
 
 pub enum FieldDefault {
     Default(Span),
@@ -73,18 +77,17 @@ impl deluxe_core::ParseMetaItem for FieldFlatten {
             Err(lookahead.error())
         }
     }
-    fn parse_meta_item_inline(input: ParseStream, mode: ParseMode) -> Result<Self> {
+    fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        mode: ParseMode,
+    ) -> Result<Self> {
         let mut flatten = Self {
-            span: mode.to_span(input),
+            span: mode.to_full_span(inputs),
             value: true,
             prefix: None,
         };
-        if input.peek(syn::LitBool) {
-            flatten.value = input.parse::<syn::LitBool>()?.value();
-            return Ok(flatten);
-        }
         let errors = crate::Errors::new();
-        let res = parse_helpers::parse_struct([input], |input, path, span| {
+        let res = parse_helpers::parse_struct(inputs, |input, path, span| {
             match path {
                 "prefix" => {
                     if flatten.prefix.is_some() {
@@ -151,21 +154,18 @@ impl deluxe_core::ParseMetaItem for FieldContainer {
             Err(lookahead.error())
         }
     }
-    fn parse_meta_item_inline(input: ParseStream, mode: ParseMode) -> Result<Self> {
+    fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        mode: ParseMode,
+    ) -> Result<Self> {
         let mut container = Self {
-            span: mode.to_span(input),
+            span: mode.to_full_span(inputs),
             value: true,
             lifetime: None,
             ty: None,
         };
-        if input.peek(syn::LitBool) {
-            let value = input.parse::<syn::LitBool>()?;
-            container.span = value.span();
-            container.value = value.value();
-            return Ok(container);
-        }
         let errors = crate::Errors::new();
-        let res = parse_helpers::parse_struct([input], |input, path, span| {
+        let res = parse_helpers::parse_struct(inputs, |input, path, span| {
             match path {
                 "lifetime" => {
                     if container.lifetime.is_some() {
@@ -223,6 +223,7 @@ pub struct ItemDef {
     pub parse: TokenStream,
     pub inline: Option<TokenStream>,
     pub flag: Option<TokenStream>,
+    pub extra_traits: Option<TokenStream>,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -274,43 +275,29 @@ impl<'f> Field<'f> {
             "skip",
         ]
     }
-    fn to_parsing_tokens(
+    fn to_pre_post_tokens(
         fields: &[Self],
         orig: &syn::Fields,
         crate_: &syn::Path,
-        data: FieldData,
-    ) -> ItemDef {
+        data: &FieldData,
+    ) -> (TokenStream, TokenStream) {
         let FieldData {
             mode,
             target,
-            inline_expr,
             allowed_expr,
             transparent,
-            allow_unknown_fields,
+            ..
         } = data;
         let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
         let priv_ = &priv_path;
         let is_unnamed = matches!(orig, syn::Fields::Unnamed(_));
-        let pub_fields = fields.iter().filter(|f| f.is_parsable());
-        let any_flat = pub_fields.clone().any(|f| f.is_flat());
         let names = fields
             .iter()
             .enumerate()
             .map(|(i, _)| quote::format_ident!("field{}", i, span = Span::mixed_site()))
             .collect::<Vec<_>>();
-        let inputs_expr = any_flat
-            .then(|| {
-                quote_spanned! { Span::mixed_site() =>
-                    #priv_::parse_helpers::fork_inputs(inputs).iter()
-                }
-            })
-            .unwrap_or_else(|| {
-                quote_spanned! { Span::mixed_site() =>
-                    #priv_::parse_helpers::ref_inputs(inputs)
-                }
-            });
         let container_def = fields.iter().enumerate().filter_map(|(i, f)| {
-            (f.is_container() && mode != TokenMode::ParseMetaItem).then(|| {
+            (f.is_container() && *mode != TokenMode::ParseMetaItem).then(|| {
                 let name = names[i].clone();
                 let func = match mode {
                     TokenMode::ParseAttributes => quote! { to_container },
@@ -329,7 +316,7 @@ impl<'f> Field<'f> {
                 .iter()
                 .enumerate()
                 .filter_map(|(i, f)| {
-                    if f.is_container() || transparent {
+                    if f.is_container() || *transparent {
                         return None;
                     }
                     let push = f.default.is_none().then(|| {
@@ -416,49 +403,8 @@ impl<'f> Field<'f> {
             }
         });
 
-        let (parse, inline, flag) = match orig {
+        match orig {
             syn::Fields::Named(_) => {
-                let field_matches = fields.iter().enumerate().filter_map(|(i, f)| {
-                    if f.is_flat() || !f.is_parsable() {
-                        return None;
-                    }
-                    let name = names[i].clone();
-                    let error = format!("duplicate attribute for `{}`", f.idents.first().unwrap());
-                    let idents = f.idents.iter().map(|i| i.to_string());
-                    let call = match f.with.as_ref() {
-                        Some(m) => {
-                            let input_ident = syn::Ident::new("input", Span::mixed_site());
-                            let span_ident = syn::Ident::new("span", Span::mixed_site());
-                            // bind the return to a variable to span a type conversion error properly
-                            quote_spanned! { m.span() =>
-                                {
-                                    let ____value = #crate_::parse_named_meta_item_with!(#input_ident, #span_ident, #m)?;
-                                    ____value
-                                }
-                            }
-                        }
-                        None => {
-                            let ty = &f.field.ty;
-                            let func = quote_spanned! { ty.span() =>
-                                #priv_::parse_helpers::parse_named_meta_item::<#ty>
-                            };
-                            quote_spanned! { Span::mixed_site() =>
-                                #func(input, span)?
-                            }
-                        }
-                    };
-                    let set = quote_spanned! { f.field.ty.span() =>
-                        #name = #priv_::Option::Some(#call);
-                    };
-                    Some(quote_spanned! { Span::mixed_site() =>
-                        #(#priv_::Option::Some(#idents))|* => {
-                            if #name.is_some() {
-                                errors.push(span, #error);
-                            }
-                            #set
-                        }
-                    })
-                });
                 let last_flat = fields
                     .iter()
                     .enumerate()
@@ -473,9 +419,7 @@ impl<'f> Field<'f> {
                         quote_spanned! { Span::mixed_site() => inputs }
                     } else {
                         quote_spanned! { Span::mixed_site() =>
-                            &#priv_::parse_helpers::ref_buffers(
-                                &#priv_::parse_helpers::fork_inputs(inputs)
-                            )
+                            &#priv_::parse_helpers::fork_inputs(inputs)
                         }
                     };
                     let func = if f.append.map(|v| *v).unwrap_or(false) {
@@ -568,74 +512,9 @@ impl<'f> Field<'f> {
                     #(#field_unwraps)*
                     #ret
                 };
-                transparent
-                    .then(|| {
-                        fields.iter().enumerate().find(|(_, f)| !f.is_flat() && f.is_parsable())
-                    })
-                    .flatten()
-                    .map(|(i, f)| {
-                        let name = &names[i];
-                        let ty = &f.field.ty;
-                        let ty = quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaItem> };
-                        (
-                            quote_spanned! { Span::mixed_site() =>
-                                #pre
-                                #name = #priv_::Option::Some(#ty::parse_meta_item(input, _mode)?);
-                                #post
-                            },
-                            Some(quote_spanned! { Span::mixed_site() =>
-                                #pre
-                                #name = #priv_::Option::Some(#ty::parse_meta_item_inline(input, _mode)?);
-                                #post
-                            }),
-                            Some(quote_spanned! { Span::mixed_site() =>
-                                #pre
-                                #name = #priv_::Option::Some(#ty::parse_meta_item_flag(span)?);
-                                #post
-                            }),
-                        )
-                }).unwrap_or_else(|| {
-                    let validate = (!allow_unknown_fields).then(|| quote_spanned! { Span::mixed_site() =>
-                        if validate {
-                            #priv_::parse_helpers::check_unknown_attribute(
-                                p, span, #allowed_expr, &errors
-                            );
-                        }
-                    });
-                    (
-                        quote_spanned! { Span::mixed_site() =>
-                            <#priv_::parse_helpers::Brace as #priv_::parse_helpers::ParseDelimited>::parse_delimited_with(
-                                input,
-                                |input| {
-                                    #inline_expr
-                                },
-                            )
-                        },
-                        Some(quote_spanned! { Span::mixed_site() =>
-                            #pre
-                            #priv_::parse_helpers::parse_struct(
-                                #inputs_expr,
-                                |input, p, span| {
-                                    match p.strip_prefix(prefix) {
-                                        #(#field_matches)*
-                                        _ => {
-                                            #validate
-                                            #priv_::parse_helpers::skip_named_meta_item(input);
-                                        }
-                                    }
-                                    #crate_::Result::Ok(())
-                                },
-                            )?;
-                            #post
-                        }),
-                        Some(quote_spanned! { Span::mixed_site() =>
-                            #priv_::parse_helpers::parse_empty_meta_item(span, #crate_::ParseMode::Named(span))
-                        }),
-                    )
-                })
+                (pre, post)
             }
             syn::Fields::Unnamed(_) => {
-                let field_count = pub_fields.clone().filter(|f| !f.is_flat()).count();
                 let ret = match target {
                     ParseTarget::Init(variant) => {
                         let variant = variant.into_iter();
@@ -665,123 +544,206 @@ impl<'f> Field<'f> {
                     #(#field_unwraps)*
                     #ret
                 };
-                transparent
-                    .then(|| {
-                        fields.iter().enumerate().find(|(_, f)| !f.is_flat() && f.is_parsable())
-                    })
-                    .flatten()
-                    .map(|(i, f)| {
-                        let name = &names[i];
-                        let ty = &f.field.ty;
-                        let ty = quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaItem> };
-                        (
-                            quote_spanned! { Span::mixed_site() =>
-                                #pre
-                                let index = 0usize;
-                                #name = #priv_::Option::Some(#ty::parse_meta_item(input, _mode)?);
-                                #post
-                            },
-                            Some(quote_spanned! { Span::mixed_site() =>
-                                #pre
-                                let index = 0usize;
-                                #name = #priv_::Option::Some(#ty::parse_meta_item_inline(input, _mode)?);
-                                #post
-                            }),
-                            Some(quote_spanned! { Span::mixed_site() =>
-                                #pre
-                                let index = 0usize;
-                                #name = #priv_::Option::Some(#ty::parse_meta_item_flag(span)?);
-                                #post
-                            }),
-                        )
-                }).unwrap_or_else(|| {
-                    let field_matches = fields.iter().enumerate().filter_map(|(index, f)| {
-                        if !f.is_parsable() || f.append.map(|v| *v).unwrap_or(false) || f.rest.map(|v| *v).unwrap_or(false) {
-                            return None;
-                        }
-                        let name = &names[index];
-                        let ty = &f.field.ty;
-                        let call = match (f.is_flat(), f.with.as_ref()) {
-                            (true, Some(m)) => quote_spanned! { Span::mixed_site() =>
-                                #m::parse_meta_flat_unnamed(inputs, index)
-                            },
-                            (false, Some(m)) => quote_spanned! { Span::mixed_site() =>
-                                #m::parse_meta_item(input, #crate_::ParseMode::Unnamed)
-                            },
-                            (true, None) => {
-                                let ty = quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaFlatUnnamed> };
-                                quote_spanned! { Span::mixed_site() =>
-                                    #ty::parse_meta_flat_unnamed(inputs, index)
-                                }
-                            },
-                            (false, None) => {
-                                let ty = quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaItem> };
-                                quote_spanned! { Span::mixed_site() =>
-                                    #ty::parse_meta_item(input, #crate_::ParseMode::Unnamed)
-                                }
-                            },
-                        };
-                        let increment = any_flat.then(|| {
-                            match f.is_flat() {
-                                true => quote_spanned! { Span::mixed_site() =>
-                                    if let #priv_::Option::Some(count) = <#ty as #crate_::ParseMetaFlatUnnamed>::field_count() {
-                                        index += count;
-                                    }
-                                },
-                                false => quote_spanned! { Span::mixed_site() =>
-                                    index += 1;
-                                }
-                            }
-                        });
-                        Some(quote_spanned! { Span::mixed_site() =>
-                            #index => {
-                                #name = #priv_::Option::Some(#call?);
-                                #increment
-                            }
-                        })
-                    });
-                    let parse_fields = (field_count > 0).then(|| {
-                        quote_spanned! { Span::mixed_site() =>
-                            #priv_::parse_helpers::parse_tuple_struct(inputs, #field_count, |input, inputs, i| {
-                                match i {
-                                    #(#field_matches)*
-                                    _ => #priv_::unreachable!(),
-                                }
-                                #crate_::Result::Ok(())
-                            })?;
-                        }
-                    }).unwrap_or_else(|| {
-                        quote_spanned! { Span::mixed_site() =>
-                            #priv_::parse_helpers::parse_tuple_struct(inputs, #field_count, |_, _, _| {
-                                #priv_::unreachable!()
-                            })?;
-                        }
-                    });
-                    (
-                        quote_spanned! { Span::mixed_site() =>
-                            <#priv_::parse_helpers::Paren as #priv_::parse_helpers::ParseDelimited>::parse_delimited_with(
-                                input,
-                                |input| {
-                                    #inline_expr
-                                },
-                            )
-                        },
-                        Some(quote_spanned! { Span::mixed_site() =>
-                            #pre
-                            #parse_fields
-                            #post
-                        }),
-                        None,
-                    )
-                })
+                (pre, post)
             }
             syn::Fields::Unit => {
                 let variant = match target {
-                    ParseTarget::Init(variant) => variant,
+                    ParseTarget::Init(variant) => *variant,
                     _ => None,
                 }
                 .into_iter();
-                let variant2 = variant.clone();
+                let pre = quote_spanned! { Span::mixed_site() => };
+                let post = quote_spanned! { Span::mixed_site() =>
+                    #crate_::Result::Ok(Self #(::#variant)*)
+                };
+                (pre, post)
+            }
+        }
+    }
+    fn to_parsing_tokens(
+        fields: &[Self],
+        orig: &syn::Fields,
+        crate_: &syn::Path,
+        (pre, post): (&TokenStream, &TokenStream),
+        data: FieldData,
+    ) -> ItemDef {
+        let FieldData {
+            mode,
+            target,
+            inline_expr,
+            allowed_expr,
+            allow_unknown_fields,
+            ..
+        } = data;
+        let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
+        let priv_ = &priv_path;
+        let pub_fields = fields.iter().filter(|f| f.is_parsable());
+        let any_flat = pub_fields.clone().any(|f| f.is_flat());
+        let names = fields
+            .iter()
+            .enumerate()
+            .map(|(i, _)| quote::format_ident!("field{}", i, span = Span::mixed_site()))
+            .collect::<Vec<_>>();
+        let inputs_expr = any_flat
+            .then(|| {
+                quote_spanned! { Span::mixed_site() =>
+                    &#priv_::parse_helpers::fork_inputs(inputs)
+                }
+            })
+            .unwrap_or_else(|| {
+                quote_spanned! { Span::mixed_site() =>
+                    inputs
+                }
+            });
+        let (parse, inline, flag) = match orig {
+            syn::Fields::Named(_) => {
+                let field_matches = fields.iter().enumerate().filter_map(|(i, f)| {
+                    if f.is_flat() || !f.is_parsable() {
+                        return None;
+                    }
+                    let name = names[i].clone();
+                    let error = format!("duplicate attribute for `{}`", f.idents.first().unwrap());
+                    let idents = f.idents.iter().map(|i| i.to_string());
+                    let call = match f.with.as_ref() {
+                        Some(m) => {
+                            let input_ident = syn::Ident::new("input", Span::mixed_site());
+                            let span_ident = syn::Ident::new("span", Span::mixed_site());
+                            // bind the return to a variable to span a type conversion error properly
+                            quote_spanned! { m.span() =>
+                                {
+                                    let ____value = #crate_::parse_named_meta_item_with!(#input_ident, #span_ident, #m)?;
+                                    ____value
+                                }
+                            }
+                        }
+                        None => {
+                            let ty = &f.field.ty;
+                            let func = quote_spanned! { ty.span() =>
+                                #priv_::parse_helpers::parse_named_meta_item::<#ty>
+                            };
+                            quote_spanned! { Span::mixed_site() =>
+                                #func(input, span)?
+                            }
+                        }
+                    };
+                    let set = quote_spanned! { f.field.ty.span() =>
+                        #name = #priv_::Option::Some(#call);
+                    };
+                    Some(quote_spanned! { Span::mixed_site() =>
+                        #(#priv_::Option::Some(#idents))|* => {
+                            if #name.is_some() {
+                                errors.push(span, #error);
+                            }
+                            #set
+                        }
+                    })
+                });
+                let validate = (!allow_unknown_fields).then(|| {
+                    quote_spanned! { Span::mixed_site() =>
+                        if validate {
+                            #priv_::parse_helpers::check_unknown_attribute(
+                                p, span, #allowed_expr, &errors
+                            );
+                        }
+                    }
+                });
+                (
+                    quote_spanned! { Span::mixed_site() =>
+                        <#priv_::parse_helpers::Brace as #priv_::parse_helpers::ParseDelimited>::parse_delimited_with(
+                            input,
+                            |input| {
+                                #inline_expr
+                            },
+                        )
+                    },
+                    Some(quote_spanned! { Span::mixed_site() =>
+                        #pre
+                        #priv_::parse_helpers::parse_struct(
+                            #inputs_expr,
+                            |input, p, span| {
+                                match p.strip_prefix(prefix) {
+                                    #(#field_matches)*
+                                    _ => {
+                                        #validate
+                                        #priv_::parse_helpers::skip_named_meta_item(input);
+                                    }
+                                }
+                                #crate_::Result::Ok(())
+                            },
+                        )?;
+                        #post
+                    }),
+                    Some(quote_spanned! { Span::mixed_site() =>
+                        #priv_::parse_helpers::parse_empty_meta_item(span, #crate_::ParseMode::Named(span))
+                    }),
+                )
+            }
+            syn::Fields::Unnamed(_) => {
+                let field_matches = fields.iter().enumerate().filter_map(|(index, f)| {
+                    if !f.is_parsable() || f.append.map(|v| *v).unwrap_or(false) || f.rest.map(|v| *v).unwrap_or(false) {
+                        return None;
+                    }
+                    let name = &names[index];
+                    let ty = &f.field.ty;
+                    let call = match (f.is_flat(), f.with.as_ref()) {
+                        (true, Some(m)) => quote_spanned! { Span::mixed_site() =>
+                            #m::parse_meta_flat_unnamed(inputs, index)
+                        },
+                        (false, Some(m)) => quote_spanned! { Span::mixed_site() =>
+                            #m::parse_meta_item(input, #crate_::ParseMode::Unnamed)
+                        },
+                        (true, None) => {
+                            let ty = quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaFlatUnnamed> };
+                            quote_spanned! { Span::mixed_site() =>
+                                #ty::parse_meta_flat_unnamed(inputs, index)
+                            }
+                        },
+                        (false, None) => {
+                            let ty = quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaItem> };
+                            quote_spanned! { Span::mixed_site() =>
+                                #ty::parse_meta_item(input, #crate_::ParseMode::Unnamed)
+                            }
+                        },
+                    };
+                    let increment = any_flat.then(|| {
+                        match f.is_flat() {
+                            true => quote_spanned! { Span::mixed_site() =>
+                                if let #priv_::Option::Some(count) = <#ty as #crate_::ParseMetaFlatUnnamed>::field_count() {
+                                    index += count;
+                                }
+                            },
+                            false => quote_spanned! { Span::mixed_site() =>
+                                index += 1;
+                            }
+                        }
+                    });
+                    Some(quote_spanned! { Span::mixed_site() =>
+                        #index => {
+                            #name = #priv_::Option::Some(#call?);
+                            #increment
+                        }
+                    })
+                });
+                let parse_fields = pub_fields.clone().next().is_some().then(|| {
+                    let field_count = pub_fields.clone().filter(|f| !f.is_flat()).count();
+                    quote_spanned! { Span::mixed_site() =>
+                        #priv_::parse_helpers::parse_tuple_struct(inputs, #field_count, |input, inputs, i| {
+                            match i {
+                                #(#field_matches)*
+                                _ => #priv_::unreachable!(),
+                            }
+                            #crate_::Result::Ok(())
+                        })?;
+                    }
+                }).unwrap_or_else(|| {
+                    quote_spanned! { Span::mixed_site() =>
+                        for input in inputs {
+                            #priv_::parse_helpers::parse_eof_or_trailing_comma(
+                                #priv_::Borrow::borrow(input),
+                            )?;
+                        }
+                    }
+                });
                 (
                     quote_spanned! { Span::mixed_site() =>
                         <#priv_::parse_helpers::Paren as #priv_::parse_helpers::ParseDelimited>::parse_delimited_with(
@@ -792,9 +754,45 @@ impl<'f> Field<'f> {
                         )
                     },
                     Some(quote_spanned! { Span::mixed_site() =>
-                        <() as #crate_::ParseMetaItem>::parse_meta_item_inline(input, _mode)?;
-                        #crate_::Result::Ok(Self #(::#variant)*)
+                        #pre
+                        #parse_fields
+                        #post
                     }),
+                    None,
+                )
+            }
+            syn::Fields::Unit => {
+                let variant = match target {
+                    ParseTarget::Init(variant) => variant,
+                    _ => None,
+                }
+                .into_iter();
+                let variant2 = variant.clone();
+                let inline = if mode == TokenMode::ParseMetaItem {
+                    quote_spanned! { Span::mixed_site() =>
+                        <() as #crate_::ParseMetaItem>::parse_meta_item_inline(inputs, _mode)?;
+                        #crate_::Result::Ok(Self #(::#variant)*)
+                    }
+                } else {
+                    quote_spanned! { Span::mixed_site() =>
+                        for input in inputs {
+                            #priv_::parse_helpers::parse_eof_or_trailing_comma(
+                                #priv_::Borrow::borrow(input),
+                            )?;
+                        }
+                        #crate_::Result::Ok(Self #(::#variant)*)
+                    }
+                };
+                (
+                    quote_spanned! { Span::mixed_site() =>
+                        <#priv_::parse_helpers::Paren as #priv_::parse_helpers::ParseDelimited>::parse_delimited_with(
+                            input,
+                            |input| {
+                                #inline_expr
+                            },
+                        )
+                    },
+                    Some(inline),
                     Some(quote_spanned! { Span::mixed_site() =>
                         #crate_::Result::Ok(Self #(::#variant2)*)
                     }),
@@ -805,6 +803,7 @@ impl<'f> Field<'f> {
             parse,
             inline,
             flag,
+            extra_traits: None,
         }
     }
 }
@@ -817,7 +816,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
     fn parse_attributes(field: &'f syn::Field) -> Result<Self> {
         parse_helpers::parse_struct_attr_tokens(
             parse_helpers::ref_tokens::<Self, _>(field),
-            |inputs| {
+            |inputs, _| {
                 let named = field.ident.is_some();
                 let errors = crate::Errors::new();
                 let mut alias_span = None;
@@ -957,17 +956,135 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
     }
 }
 
+pub struct StructTransparent {
+    pub span: Span,
+    pub value: bool,
+    pub flatten_named: Option<bool>,
+    pub flatten_unnamed: Option<bool>,
+    pub append: Option<bool>,
+    pub rest: Option<bool>,
+}
+
+impl Spanned for StructTransparent {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+impl deluxe_core::ParseMetaItem for StructTransparent {
+    fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
+        let lookahead = input.lookahead1();
+        if lookahead.peek(syn::LitBool) {
+            let value = input.parse::<syn::LitBool>()?;
+            Ok(Self {
+                span: value.span(),
+                value: value.value(),
+                flatten_named: None,
+                flatten_unnamed: None,
+                append: None,
+                rest: None,
+            })
+        } else if lookahead.peek(syn::token::Brace) {
+            <parse_helpers::Brace as parse_helpers::ParseDelimited>::parse_delimited_meta_item(
+                input, mode,
+            )
+        } else {
+            Err(lookahead.error())
+        }
+    }
+    fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        mode: ParseMode,
+    ) -> Result<Self> {
+        let mut transparent = Self {
+            span: mode.to_full_span(inputs),
+            value: true,
+            flatten_named: None,
+            flatten_unnamed: None,
+            append: None,
+            rest: None,
+        };
+        let errors = crate::Errors::new();
+        let res = parse_helpers::parse_struct(inputs, |input, path, span| {
+            match path {
+                "flatten_named" => {
+                    if transparent.flatten_named.is_some() {
+                        errors.push(span, "duplicate attribute for `flatten_named`");
+                    }
+                    transparent.flatten_named =
+                        Some(parse_helpers::parse_named_meta_item(input, span)?);
+                }
+                "flatten_unnamed" => {
+                    if transparent.flatten_unnamed.is_some() {
+                        errors.push(span, "duplicate attribute for `flatten_unnamed`");
+                    }
+                    transparent.flatten_unnamed =
+                        Some(parse_helpers::parse_named_meta_item(input, span)?);
+                }
+                "append" => {
+                    if transparent.append.is_some() {
+                        errors.push(span, "duplicate attribute for `append`");
+                    }
+                    transparent.append = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                }
+                "rest" => {
+                    if transparent.rest.is_some() {
+                        errors.push(span, "duplicate attribute for `rest`");
+                    }
+                    transparent.rest = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                }
+                _ => {
+                    errors.push_syn(parse_helpers::unknown_error(
+                        path,
+                        span,
+                        &["flatten_named", "flatten_unnamed", "append", "rest"],
+                    ));
+                    parse_helpers::skip_named_meta_item(input);
+                }
+            }
+            Ok(())
+        });
+        if let Err(err) = res {
+            errors.extend(err);
+        }
+        errors.check()?;
+        Ok(transparent)
+    }
+    #[inline]
+    fn parse_meta_item_flag(span: Span) -> Result<Self> {
+        Ok(Self {
+            span,
+            value: true,
+            flatten_named: None,
+            flatten_unnamed: None,
+            append: None,
+            rest: None,
+        })
+    }
+}
+
 pub struct Struct<'s> {
     pub struct_: &'s syn::DataStruct,
     pub fields: Vec<Field<'s>>,
     pub default: Option<FieldDefault>,
     pub crate_: Option<syn::Path>,
-    pub transparent: Option<bool>,
+    pub transparent: Option<StructTransparent>,
     pub allow_unknown_fields: Option<bool>,
     pub attributes: Vec<syn::Path>,
 }
 
 impl<'s> Struct<'s> {
+    #[inline]
+    pub fn is_transparent(&self) -> bool {
+        self.transparent.as_ref().map(|t| t.value).unwrap_or(false)
+            && self
+                .fields
+                .iter()
+                .filter(|f| f.is_parsable() && !f.is_flat())
+                .take(2)
+                .count()
+                == 1
+    }
     #[inline]
     pub fn field_names() -> &'static [&'static str] {
         &["transparent", "default", "crate", "attributes"]
@@ -1045,7 +1162,7 @@ impl<'s> Struct<'s> {
     }
     pub fn to_parsing_tokens(
         &self,
-        orig: &syn::Fields,
+        orig: &syn::DeriveInput,
         crate_: &syn::Path,
         mode: TokenMode,
         inline_expr: &syn::Expr,
@@ -1053,63 +1170,210 @@ impl<'s> Struct<'s> {
     ) -> ItemDef {
         let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
         let priv_ = &priv_path;
-        let default_set = self.default.as_ref().map(|d| {
-            let expr = d.to_expr(&syn::parse_quote! { Self }, priv_);
-            quote_spanned! { Span::mixed_site() =>
-                let mut target: Self = #expr;
-            }
-        });
-        let target = default_set
+        let target = self
+            .default
             .as_ref()
             .map(|_| syn::parse_quote_spanned! { Span::mixed_site() => target });
         let target = target
             .as_ref()
             .map(ParseTarget::Var)
             .unwrap_or_else(|| ParseTarget::Init(None));
-        let transparent = self.transparent.unwrap_or(false);
+        let transparent = self.is_transparent();
         let allow_unknown_fields = self.allow_unknown_fields.unwrap_or(false);
-        let ItemDef {
-            parse,
-            inline,
-            flag,
-        } = Field::to_parsing_tokens(
-            &self.fields,
-            orig,
-            crate_,
-            FieldData {
-                mode,
-                target,
-                inline_expr,
-                allowed_expr,
-                transparent,
-                allow_unknown_fields,
-            },
-        );
-        ItemDef {
-            parse: if transparent {
+        let field_data = FieldData {
+            mode,
+            target,
+            inline_expr,
+            allowed_expr,
+            transparent,
+            allow_unknown_fields,
+        };
+        let orig_fields = match &orig.data {
+            syn::Data::Struct(s) => &s.fields,
+            _ => unreachable!(),
+        };
+        let (mut pre, post) =
+            Field::to_pre_post_tokens(&self.fields, orig_fields, crate_, &field_data);
+        let default_set = self.default.as_ref().map(|d| {
+            let expr = d.to_expr(&syn::parse_quote! { Self }, priv_);
+            quote_spanned! { Span::mixed_site() =>
+                let mut target: Self = #expr;
+            }
+        });
+        if transparent {
+            let (field, name) = self
+                .fields
+                .iter()
+                .enumerate()
+                .find_map(|(i, f)| {
+                    (f.is_parsable() && !f.is_flat()).then(|| {
+                        (
+                            f,
+                            quote::format_ident!("field{}", i, span = Span::mixed_site()),
+                        )
+                    })
+                })
+                .unwrap();
+            let ty = &field.field.ty;
+            let parse_ty = quote_spanned! { ty.span() =>
+                <#ty as #crate_::ParseMetaItem>
+            };
+            pre.extend(default_set);
+            if matches!(orig_fields, syn::Fields::Unnamed(_)) {
+                pre.extend(quote_spanned! { Span::mixed_site() =>
+                    let index = 0usize;
+                });
+            }
+            let parse = quote_spanned! { Span::mixed_site() =>
+                #pre
+                #name = #priv_::Option::Some(#parse_ty::parse_meta_item(input, _mode)?);
+                #post
+            };
+            let inline = Some(quote_spanned! { Span::mixed_site() =>
+                #pre
+                #name = #priv_::Option::Some(#parse_ty::parse_meta_item_inline(inputs, _mode)?);
+                #post
+            });
+            let flag = Some(quote_spanned! { Span::mixed_site() =>
+                #pre
+                #name = #priv_::Option::Some(#parse_ty::parse_meta_item_flag(span)?);
+                #post
+            });
+            let struct_ident = &orig.ident;
+            let (impl_generics, type_generics, where_clause) = orig.generics.split_for_impl();
+            let flatten_named = self
+                .transparent
+                .as_ref()
+                .and_then(|t| t.flatten_named)
+                .unwrap_or(false);
+            let flatten_unnamed = self
+                .transparent
+                .as_ref()
+                .and_then(|t| t.flatten_unnamed)
+                .unwrap_or(false);
+            let rest = self
+                .transparent
+                .as_ref()
+                .and_then(|t| t.rest)
+                .unwrap_or(false);
+            let append = self
+                .transparent
+                .as_ref()
+                .and_then(|t| t.append)
+                .unwrap_or(false);
+
+            let mut extra_traits = Vec::new();
+            if flatten_named {
+                let flat_ty = quote_spanned! { ty.span() =>
+                    <#ty as #crate_::ParseMetaFlatNamed>
+                };
+                extra_traits.push(quote_spanned! { Span::mixed_site() =>
+                    impl #impl_generics #crate_::ParseMetaFlatNamed for #struct_ident #type_generics #where_clause {
+                        const ACCEPTS_ALL: #priv_::bool = #flat_ty::ACCEPTS_ALL;
+                        #[inline]
+                        fn field_names() -> &'static [&'static #priv_::str] {
+                            #flat_ty::field_names()
+                        }
+                        #[inline]
+                        fn parse_meta_flat_named<'s, S: #priv_::Borrow<#priv_::ParseBuffer<'s>>>(
+                            inputs: &[S],
+                            prefix: &#priv_::str,
+                            validate: #priv_::bool,
+                        ) -> #crate_::Result<Self> {
+                            #pre
+                            #name = #priv_::Option::Some(#flat_ty::parse_meta_flat_named(inputs, prefix, validate)?);
+                            #post
+                        }
+                    }
+                });
+            }
+            if flatten_unnamed {
+                let flat_ty = quote_spanned! { ty.span() =>
+                    <#ty as #crate_::ParseMetaFlatUnnamed>
+                };
+                extra_traits.push(quote_spanned! { Span::mixed_site() =>
+                    impl #impl_generics #crate_::ParseMetaFlatUnnamed for #struct_ident #type_generics #where_clause {
+                        #[inline]
+                        fn field_count() -> #priv_::Option<#priv_::usize> {
+                            #flat_ty::field_count()
+                        }
+                        #[inline]
+                        fn parse_meta_flat_unnamed<'s, S: #priv_::Borrow<#priv_::ParseBuffer<'s>>>(
+                            inputs: &[S],
+                            index: #priv_::usize,
+                        ) -> #crate_::Result<Self> {
+                            #pre
+                            #name = #priv_::Option::Some(#flat_ty::parse_meta_flat_unnamed(inputs, index)?);
+                            #post
+                        }
+                    }
+                });
+            }
+            if rest {
+                let rest_ty = quote_spanned! { ty.span() =>
+                    <#ty as #crate_::ParseMetaRest>
+                };
+                extra_traits.push(quote_spanned! { Span::mixed_site() =>
+                    impl #impl_generics #crate_::ParseMetaRest for #struct_ident #type_generics #where_clause {
+                        #[inline]
+                        fn parse_meta_rest<'s, S: #priv_::Borrow<#priv_::ParseBuffer<'s>>>(
+                            inputs: &[S],
+                            exclude: &[&#priv_::str],
+                        ) -> #crate_::Result<Self> {
+                            #pre
+                            #name = #priv_::Option::Some(#rest_ty::parse_meta_rest(inputs, exclude)?);
+                            #post
+                        }
+                    }
+                });
+            }
+            if append {
+                let append_ty = quote_spanned! { ty.span() =>
+                    <#ty as #crate_::ParseMetaAppend>
+                };
+                extra_traits.push(quote_spanned! { Span::mixed_site() =>
+                    impl #impl_generics #crate_::ParseMetaAppend for #struct_ident #type_generics #where_clause {
+                        #[inline]
+                        fn parse_meta_append<'s, S, I, P>(inputs: &[S], paths: I) -> #crate_::Result<Self>
+                        where
+                            S: #priv_::Borrow<#priv_::ParseBuffer<'s>>,
+                            I: #priv_::IntoIterator<Item = P>,
+                            I::IntoIter: #priv_::Clone,
+                            P: #priv_::AsRef<#priv_::str>
+                        {
+                            #pre
+                            #name = #priv_::Option::Some(#append_ty::parse_meta_append(inputs, paths)?);
+                            #post
+                        }
+                    }
+                });
+            }
+            let extra_traits = (!extra_traits.is_empty()).then(|| {
                 quote_spanned! { Span::mixed_site() =>
-                    #default_set
-                    #parse
+                    #(#extra_traits)*
                 }
-            } else {
-                parse
-            },
-            inline: inline.map(|inline| {
+            });
+            ItemDef {
+                parse,
+                inline,
+                flag,
+                extra_traits,
+            }
+        } else {
+            let mut def = Field::to_parsing_tokens(
+                &self.fields,
+                orig_fields,
+                crate_,
+                (&pre, &post),
+                field_data,
+            );
+            def.inline = def.inline.map(|inline| {
                 quote_spanned! { Span::mixed_site() =>
                     #default_set
                     #inline
                 }
-            }),
-            flag: if transparent {
-                flag.map(|flag| {
-                    quote_spanned! { Span::mixed_site() =>
-                        #default_set
-                        #flag
-                    }
-                })
-            } else {
-                flag
-            },
+            });
+            def
         }
     }
 }
@@ -1120,138 +1384,145 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
         path.is_ident("deluxe")
     }
     fn parse_attributes(i: &'s syn::DeriveInput) -> Result<Self> {
-        parse_helpers::parse_struct_attr_tokens(parse_helpers::ref_tokens::<Self, _>(i), |inputs| {
-            let struct_ = match &i.data {
-                syn::Data::Struct(s) => s,
-                _ => return Err(syn::Error::new_spanned(i, "wrong DeriveInput type")),
-            };
-            let errors = crate::Errors::new();
-            let mut transparent = None;
-            let mut allow_unknown_fields = None;
-            let mut default = None;
-            let mut crate_ = None;
-            let mut attributes = Vec::new();
-            let fields = struct_
-                .fields
-                .iter()
-                .filter_map(|f| match Field::parse_attributes(f) {
-                    Ok(f) => Some(f),
-                    Err(err) => {
-                        errors.push_syn(err);
-                        None
+        parse_helpers::parse_struct_attr_tokens(
+            parse_helpers::ref_tokens::<Self, _>(i),
+            |inputs, _| {
+                let struct_ = match &i.data {
+                    syn::Data::Struct(s) => s,
+                    _ => return Err(syn::Error::new_spanned(i, "wrong DeriveInput type")),
+                };
+                let errors = crate::Errors::new();
+                let mut transparent = None;
+                let mut allow_unknown_fields = None;
+                let mut default = None;
+                let mut crate_ = None;
+                let mut attributes = Vec::new();
+                let fields = struct_
+                    .fields
+                    .iter()
+                    .filter_map(|f| match Field::parse_attributes(f) {
+                        Ok(f) => Some(f),
+                        Err(err) => {
+                            errors.push_syn(err);
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                parse_helpers::parse_struct(inputs, |input, path, span| {
+                    match path {
+                        "transparent" => {
+                            if transparent.is_some() {
+                                errors.push(span, "duplicate attribute for `transparent`");
+                            }
+                            let mut iter = fields.iter().filter(|f| f.is_parsable());
+                            if let Some(first) = iter.next() {
+                                if iter.next().is_some() {
+                                    errors.push(
+                                        span,
+                                        "`transparent` struct must have only one parseable field",
+                                    );
+                                } else if first.flatten.as_ref().map(|f| f.value).unwrap_or(false) {
+                                    errors
+                                        .push(span, "`transparent` struct field cannot be `flat`");
+                                } else if first.append.map(|v| *v).unwrap_or(false) {
+                                    errors.push(
+                                        span,
+                                        "`transparent` struct field cannot be `append`",
+                                    );
+                                }
+                            }
+                            transparent = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                        }
+                        "allow_unknown_fields" => {
+                            if allow_unknown_fields.is_some() {
+                                errors.push(span, "duplicate attribute for `allow_unknown_fields`");
+                            }
+                            allow_unknown_fields =
+                                Some(parse_helpers::parse_named_meta_item(input, span)?);
+                        }
+                        "default" => {
+                            if default.is_some() {
+                                errors.push(span, "duplicate attribute for `default`");
+                            }
+                            if matches!(struct_.fields, syn::Fields::Unit) {
+                                errors.push(span, "`default` not allowed on unit struct");
+                            }
+                            default = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                        }
+                        "crate" => {
+                            if crate_.is_some() {
+                                errors.push(span, "duplicate attribute for `crate`");
+                            }
+                            crate_ = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                        }
+                        "attributes" => {
+                            let attrs = deluxe_core::parse_named_meta_item_with!(
+                                input,
+                                span,
+                                deluxe_core::with::mod_path_vec
+                            )?;
+                            attributes.extend(attrs.into_iter());
+                        }
+                        _ => {
+                            parse_helpers::check_unknown_attribute(
+                                path,
+                                span,
+                                Self::field_names(),
+                                &errors,
+                            );
+                            parse_helpers::skip_named_meta_item(input);
+                        }
                     }
+                    Ok(())
+                })?;
+                let fields = {
+                    let mut fields = fields;
+                    if default.is_none() {
+                        for field in &mut fields {
+                            if let Some(span) =
+                                field.skip.and_then(|skip| (*skip).then_some(skip.span()))
+                            {
+                                if field.default.is_none() {
+                                    field.default = Some(FieldDefault::Default(span));
+                                }
+                            }
+                        }
+                    }
+                    fields
+                };
+                let mut all_idents = HashSet::new();
+                let mut container = None;
+                for field in &fields {
+                    for ident in &field.idents {
+                        if all_idents.contains(ident) {
+                            errors.push_spanned(
+                                ident,
+                                format_args!("duplicate field name for `{}`", ident),
+                            );
+                        } else {
+                            all_idents.insert(ident.clone());
+                        }
+                    }
+                    if let Some(c) = field.container.as_ref() {
+                        if container.is_some() {
+                            errors.push(c.span(), "Duplicate `container` field")
+                        } else {
+                            container = Some(c);
+                        }
+                    }
+                }
+                errors.check()?;
+                Ok(Self {
+                    struct_,
+                    fields,
+                    default,
+                    crate_,
+                    transparent,
+                    allow_unknown_fields,
+                    attributes,
                 })
-                .collect::<Vec<_>>();
-            parse_helpers::parse_struct(inputs, |input, path, span| {
-                match path {
-                    "transparent" => {
-                        if transparent.is_some() {
-                            errors.push(span, "duplicate attribute for `transparent`");
-                        }
-                        let mut iter = fields.iter().filter(|f| f.is_parsable());
-                        if let Some(first) = iter.next() {
-                            if iter.next().is_some() {
-                                errors.push(
-                                    span,
-                                    "`transparent` struct must have only one parseable field",
-                                );
-                            } else if first.flatten.as_ref().map(|f| f.value).unwrap_or(false) {
-                                errors.push(span, "`transparent` struct field cannot be `flat`");
-                            } else if first.append.map(|v| *v).unwrap_or(false) {
-                                errors.push(span, "`transparent` struct field cannot be `append`");
-                            }
-                        }
-                        transparent = Some(parse_helpers::parse_named_meta_item(input, span)?);
-                    }
-                    "allow_unknown_fields" => {
-                        if allow_unknown_fields.is_some() {
-                            errors.push(span, "duplicate attribute for `allow_unknown_fields`");
-                        }
-                        allow_unknown_fields =
-                            Some(parse_helpers::parse_named_meta_item(input, span)?);
-                    }
-                    "default" => {
-                        if default.is_some() {
-                            errors.push(span, "duplicate attribute for `default`");
-                        }
-                        if matches!(struct_.fields, syn::Fields::Unit) {
-                            errors.push(span, "`default` not allowed on unit struct");
-                        }
-                        default = Some(parse_helpers::parse_named_meta_item(input, span)?);
-                    }
-                    "crate" => {
-                        if crate_.is_some() {
-                            errors.push(span, "duplicate attribute for `crate`");
-                        }
-                        crate_ = Some(parse_helpers::parse_named_meta_item(input, span)?);
-                    }
-                    "attributes" => {
-                        let attrs = deluxe_core::parse_named_meta_item_with!(
-                            input,
-                            span,
-                            deluxe_core::with::mod_path_vec
-                        )?;
-                        attributes.extend(attrs.into_iter());
-                    }
-                    _ => {
-                        parse_helpers::check_unknown_attribute(
-                            path,
-                            span,
-                            Self::field_names(),
-                            &errors,
-                        );
-                        parse_helpers::skip_named_meta_item(input);
-                    }
-                }
-                Ok(())
-            })?;
-            let fields = {
-                let mut fields = fields;
-                if default.is_none() {
-                    for field in &mut fields {
-                        if let Some(span) =
-                            field.skip.and_then(|skip| (*skip).then_some(skip.span()))
-                        {
-                            if field.default.is_none() {
-                                field.default = Some(FieldDefault::Default(span));
-                            }
-                        }
-                    }
-                }
-                fields
-            };
-            let mut all_idents = HashSet::new();
-            let mut container = None;
-            for field in &fields {
-                for ident in &field.idents {
-                    if all_idents.contains(ident) {
-                        errors.push_spanned(
-                            ident,
-                            format_args!("duplicate field name for `{}`", ident),
-                        );
-                    } else {
-                        all_idents.insert(ident.clone());
-                    }
-                }
-                if let Some(c) = field.container.as_ref() {
-                    if container.is_some() {
-                        errors.push(c.span(), "Duplicate `container` field")
-                    } else {
-                        container = Some(c);
-                    }
-                }
-            }
-            errors.check()?;
-            Ok(Self {
-                struct_,
-                fields,
-                default,
-                crate_,
-                transparent,
-                allow_unknown_fields,
-                attributes,
-            })
-        })
+            },
+        )
     }
 }
 
@@ -1292,22 +1563,27 @@ impl<'v> Variant<'v> {
         mode: TokenMode,
         flat: bool,
     ) -> TokenStream {
+        let field_data = FieldData {
+            mode: if flat { mode } else { TokenMode::ParseMetaItem },
+            target: ParseTarget::Init(Some(&self.variant.ident)),
+            inline_expr: &syn::parse_quote_spanned! { Span::mixed_site() => inline(input, _mode) },
+            allowed_expr: &syn::parse_quote_spanned! { Span::mixed_site() => &[] },
+            transparent: self.transparent.unwrap_or(false),
+            allow_unknown_fields: self.allow_unknown_fields.unwrap_or(false),
+        };
+        let (pre, post) =
+            Field::to_pre_post_tokens(&self.fields, &self.variant.fields, crate_, &field_data);
         let ItemDef {
             parse,
             inline,
             flag,
+            ..
         } = Field::to_parsing_tokens(
             &self.fields,
             &self.variant.fields,
             crate_,
-            FieldData {
-                mode,
-                target: ParseTarget::Init(Some(&self.variant.ident)),
-                inline_expr: &syn::parse_quote_spanned! { Span::mixed_site() => inline(input, _mode) },
-                allowed_expr: &syn::parse_quote_spanned! { Span::mixed_site() => &[] },
-                transparent: self.transparent.unwrap_or(false),
-                allow_unknown_fields: self.allow_unknown_fields.unwrap_or(false),
-            },
+            (&pre, &post),
+            field_data,
         );
         let pre = match &self.variant.fields {
             syn::Fields::Named(_) => Some(quote_spanned! { Span::mixed_site() =>
@@ -1401,12 +1677,12 @@ impl<'v> Variant<'v> {
         let inputs_expr = any_flat
             .then(|| {
                 quote_spanned! { Span::mixed_site() =>
-                    &#priv_::parse_helpers::ref_buffers(&priv_::parse_helpers::fork_inputs(inputs))
+                    &#priv_::parse_helpers::fork_inputs(inputs)
                 }
             })
             .unwrap_or_else(|| {
                 quote_spanned! { Span::mixed_site() =>
-                    #priv_::parse_helpers::ref_inputs(inputs)
+                    inputs
                 }
             });
         let mut flat_matches = variants
@@ -1514,7 +1790,7 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
     fn parse_attributes(variant: &'v syn::Variant) -> Result<Self> {
         parse_helpers::parse_struct_attr_tokens(
             parse_helpers::ref_tokens::<Self, _>(variant),
-            |inputs| {
+            |inputs, _| {
                 let errors = crate::Errors::new();
                 let mut alias_span = None;
                 let mut idents = Vec::new();
@@ -1776,150 +2052,154 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
         path.is_ident("deluxe")
     }
     fn parse_attributes(i: &'e syn::DeriveInput) -> Result<Self> {
-        parse_helpers::parse_struct_attr_tokens(parse_helpers::ref_tokens::<Self, _>(i), |inputs| {
-            let enum_ = match &i.data {
-                syn::Data::Enum(e) => e,
-                _ => return Err(syn::Error::new_spanned(i, "wrong DeriveInput type")),
-            };
-            let errors = crate::Errors::new();
-            let mut default = None;
-            let mut crate_ = None;
-            let mut attributes = Vec::new();
-            let mut allow_unknown_fields = None;
-            parse_helpers::parse_struct(inputs, |input, path, span| {
-                match path {
-                    "default" => {
-                        if default.is_some() {
-                            errors.push(span, "duplicate attribute for `default`");
+        parse_helpers::parse_struct_attr_tokens(
+            parse_helpers::ref_tokens::<Self, _>(i),
+            |inputs, _| {
+                let enum_ = match &i.data {
+                    syn::Data::Enum(e) => e,
+                    _ => return Err(syn::Error::new_spanned(i, "wrong DeriveInput type")),
+                };
+                let errors = crate::Errors::new();
+                let mut default = None;
+                let mut crate_ = None;
+                let mut attributes = Vec::new();
+                let mut allow_unknown_fields = None;
+                parse_helpers::parse_struct(inputs, |input, path, span| {
+                    match path {
+                        "default" => {
+                            if default.is_some() {
+                                errors.push(span, "duplicate attribute for `default`");
+                            }
+                            default = Some(parse_helpers::parse_named_meta_item::<FieldDefault>(
+                                input, span,
+                            )?);
                         }
-                        default = Some(parse_helpers::parse_named_meta_item::<FieldDefault>(
-                            input, span,
-                        )?);
-                    }
-                    "crate" => {
-                        if crate_.is_some() {
-                            errors.push(span, "duplicate attribute for `crate`");
+                        "crate" => {
+                            if crate_.is_some() {
+                                errors.push(span, "duplicate attribute for `crate`");
+                            }
+                            crate_ = Some(parse_helpers::parse_named_meta_item(input, span)?);
                         }
-                        crate_ = Some(parse_helpers::parse_named_meta_item(input, span)?);
-                    }
-                    "attributes" => {
-                        let attrs = deluxe_core::parse_named_meta_item_with!(
-                            input,
-                            span,
-                            deluxe_core::with::mod_path_vec
-                        )?;
-                        attributes.extend(attrs.into_iter());
-                    }
-                    "allow_unknown_fields" => {
-                        if allow_unknown_fields.is_some() {
-                            errors.push(span, "duplicate attribute for `allow_unknown_fields`");
+                        "attributes" => {
+                            let attrs = deluxe_core::parse_named_meta_item_with!(
+                                input,
+                                span,
+                                deluxe_core::with::mod_path_vec
+                            )?;
+                            attributes.extend(attrs.into_iter());
                         }
-                        allow_unknown_fields =
-                            Some(parse_helpers::parse_named_meta_item(input, span)?);
-                    }
-                    _ => {
-                        parse_helpers::check_unknown_attribute(
-                            path,
-                            span,
-                            Self::field_names(),
-                            &errors,
-                        );
-                        parse_helpers::skip_named_meta_item(input);
-                    }
-                }
-                Ok(())
-            })?;
-            let variants = enum_
-                .variants
-                .iter()
-                .filter_map(
-                    |v| match <Variant as ParseAttributes<syn::Variant>>::parse_attributes(v) {
-                        Ok(v) => Some(v),
-                        Err(err) => {
-                            errors.push_syn(err);
-                            None
+                        "allow_unknown_fields" => {
+                            if allow_unknown_fields.is_some() {
+                                errors.push(span, "duplicate attribute for `allow_unknown_fields`");
+                            }
+                            allow_unknown_fields =
+                                Some(parse_helpers::parse_named_meta_item(input, span)?);
                         }
-                    },
-                )
-                .collect::<Vec<_>>();
-            let mut all_idents = HashSet::new();
-            let mut container = None;
-            let mut variant_keys = BTreeSet::<BTreeSet<BTreeSet<String>>>::new();
-            for variant in &variants {
-                if let Some(c) = variant
-                    .fields
+                        _ => {
+                            parse_helpers::check_unknown_attribute(
+                                path,
+                                span,
+                                Self::field_names(),
+                                &errors,
+                            );
+                            parse_helpers::skip_named_meta_item(input);
+                        }
+                    }
+                    Ok(())
+                })?;
+                let variants = enum_
+                    .variants
                     .iter()
-                    .find_map(|f| f.container.as_ref().and_then(|c| c.value.then_some(c)))
-                {
-                    if container.is_some() {
-                        if let Some(lifetime) = c.lifetime.as_ref() {
-                            errors.push_spanned(
+                    .filter_map(|v| {
+                        match <Variant as ParseAttributes<syn::Variant>>::parse_attributes(v) {
+                            Ok(v) => Some(v),
+                            Err(err) => {
+                                errors.push_syn(err);
+                                None
+                            }
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let mut all_idents = HashSet::new();
+                let mut container = None;
+                let mut variant_keys = BTreeSet::<BTreeSet<BTreeSet<String>>>::new();
+                for variant in &variants {
+                    if let Some(c) = variant
+                        .fields
+                        .iter()
+                        .find_map(|f| f.container.as_ref().and_then(|c| c.value.then_some(c)))
+                    {
+                        if container.is_some() {
+                            if let Some(lifetime) = c.lifetime.as_ref() {
+                                errors.push_spanned(
                                 lifetime,
                                 "only the first `container` field can contain a `lifetime` parameter"
                             );
-                        }
-                        if let Some(ty) = c.ty.as_ref() {
-                            errors.push_spanned(
+                            }
+                            if let Some(ty) = c.ty.as_ref() {
+                                errors.push_spanned(
                                 ty,
                                 "only the first `container` field can contain a `type` parameter",
                             );
-                        }
-                    } else {
-                        container = Some(c);
-                    }
-                }
-                if !variant.flatten.unwrap_or(false) {
-                    variant_keys
-                        .insert([variant.idents.iter().map(|i| i.to_string()).collect()].into());
-                    for ident in &variant.idents {
-                        if all_idents.contains(&ident) {
-                            errors.push_spanned(
-                                ident,
-                                format_args!("duplicate variant name for `{}`", ident),
-                            );
+                            }
                         } else {
-                            all_idents.insert(ident);
+                            container = Some(c);
+                        }
+                    }
+                    if !variant.flatten.unwrap_or(false) {
+                        variant_keys.insert(
+                            [variant.idents.iter().map(|i| i.to_string()).collect()].into(),
+                        );
+                        for ident in &variant.idents {
+                            if all_idents.contains(&ident) {
+                                errors.push_spanned(
+                                    ident,
+                                    format_args!("duplicate variant name for `{}`", ident),
+                                );
+                            } else {
+                                all_idents.insert(ident);
+                            }
                         }
                     }
                 }
-            }
-            for variant in &variants {
-                if variant.flatten.unwrap_or(false) {
-                    if matches!(variant.variant.fields, syn::Fields::Named(_)) {
-                        let key = variant.field_key();
-                        if variant_keys.contains(&key) {
-                            errors.push_spanned(
+                for variant in &variants {
+                    if variant.flatten.unwrap_or(false) {
+                        if matches!(variant.variant.fields, syn::Fields::Named(_)) {
+                            let key = variant.field_key();
+                            if variant_keys.contains(&key) {
+                                errors.push_spanned(
                                 &variant.variant,
                                 "additional flattened variants must have at least one unique non-flattened, non-default field",
                             );
+                            } else {
+                                variant_keys.insert(key);
+                            }
                         } else {
-                            variant_keys.insert(key);
+                            errors.push_spanned(
+                                &variant.variant,
+                                "only enum variants with named fields can have `flatten`",
+                            );
                         }
-                    } else {
-                        errors.push_spanned(
-                            &variant.variant,
-                            "only enum variants with named fields can have `flatten`",
+                    }
+                }
+                if let Some(default) = &default {
+                    if variant_keys.contains(&BTreeSet::new()) {
+                        errors.push(
+                            default.span(),
+                            "`default` cannot be used when a flattened variant has no unique field",
                         );
                     }
                 }
-            }
-            if let Some(default) = &default {
-                if variant_keys.contains(&BTreeSet::new()) {
-                    errors.push(
-                        default.span(),
-                        "`default` cannot be used when a flattened variant has no unique field",
-                    );
-                }
-            }
-            errors.check()?;
-            Ok(Self {
-                enum_,
-                variants,
-                default,
-                crate_,
-                attributes,
-                allow_unknown_fields,
-            })
-        })
+                errors.check()?;
+                Ok(Self {
+                    enum_,
+                    variants,
+                    default,
+                    crate_,
+                    attributes,
+                    allow_unknown_fields,
+                })
+            },
+        )
     }
 }

@@ -1,11 +1,12 @@
 use crate::{parse_helpers::*, Errors, Result};
 use proc_macro2::Span;
 use std::{
+    borrow::Borrow,
     collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, LinkedList, VecDeque},
     hash::Hash,
 };
 use syn::{
-    parse::{Nothing, Parse, ParseStream},
+    parse::{Nothing, Parse, ParseBuffer, ParseStream},
     punctuated::Punctuated,
     Token,
 };
@@ -25,6 +26,7 @@ impl ParseMode {
     /// Converts `self` to a [`Self::Named`].
     ///
     /// If `self` is [`Unnamed`](Self::Unnamed), uses the [`Span`](proc_macro2::Span) from `input`.
+    #[inline]
     pub fn to_named(&self, input: ParseStream) -> Self {
         match self {
             Self::Unnamed => Self::Named(input.span()),
@@ -33,13 +35,28 @@ impl ParseMode {
     }
     /// Gets the stored [`Span`](proc_macro2::Span).
     ///
+    /// If `self` is [`Unnamed`](Self::Unnamed), returns `None`.
+    #[inline]
+    pub fn named_span(&self) -> Option<Span> {
+        match self {
+            Self::Named(s) => Some(*s),
+            _ => None,
+        }
+    }
+    /// Gets the stored [`Span`](proc_macro2::Span).
+    ///
     /// If `self` is [`Unnamed`](Self::Unnamed), returns the [`Span`](proc_macro2::Span) from
     /// `input`.
+    #[inline]
     pub fn to_span(&self, input: ParseStream) -> Span {
-        match self {
-            Self::Named(s) => *s,
-            _ => input.span(),
-        }
+        self.named_span().unwrap_or_else(|| input.span())
+    }
+    /// Gets the stored [`Span`](proc_macro2::Span).
+    ///
+    /// If `self` is [`Unnamed`](Self::Unnamed), returns <code>[inputs_span](inputs)</code>.
+    #[inline]
+    pub fn to_full_span<'s, S: Borrow<ParseBuffer<'s>>>(&self, inputs: &[S]) -> Span {
+        self.named_span().unwrap_or_else(|| inputs_span(inputs))
     }
 }
 
@@ -81,8 +98,11 @@ pub trait ParseMetaItem: Sized {
     ///
     /// The default implementation directly calls [`Self::parse_meta_item`].
     #[inline]
-    fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-        Self::parse_meta_item(input, _mode)
+    fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        _mode: ParseMode,
+    ) -> Result<Self> {
+        parse_first(inputs, _mode, |input| Self::parse_meta_item(input, _mode))
     }
     /// Parses an empty flag value.
     ///
@@ -126,7 +146,10 @@ pub trait ParseMetaFlatUnnamed: Sized {
     ///
     /// `index` is the starting offset into the currently parsing tuple. It should be used as a
     /// base when generating error messages.
-    fn parse_meta_flat_unnamed(inputs: &[ParseStream], index: usize) -> Result<Self>;
+    fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        index: usize,
+    ) -> Result<Self>;
 }
 
 /// Parses a meta item for a structure with named fields.
@@ -153,7 +176,11 @@ pub trait ParseMetaFlatNamed: Sized {
     ///
     /// If `validate` is true, then an error should be generated upon encountering any
     /// fields not in [`Self::field_names`].
-    fn parse_meta_flat_named(inputs: &[ParseStream], prefix: &str, validate: bool) -> Result<Self>;
+    fn parse_meta_flat_named<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        prefix: &str,
+        validate: bool,
+    ) -> Result<Self>;
     /// A flag noting if this parser will consume all unknown fields.
     ///
     /// Should be set to `true` only for structures containing a `#[deluxe(rest)]` field.
@@ -169,11 +196,12 @@ pub trait ParseMetaAppend: Sized {
     ///
     /// Fields with names matching any path in `paths` will be appended. Non-matching fields should
     /// be skipped with [`crate::parse_helpers::skip_named_meta_item`].
-    fn parse_meta_append<I, S>(inputs: &[ParseStream], paths: I) -> Result<Self>
+    fn parse_meta_append<'s, S, I, P>(inputs: &[S], paths: I) -> Result<Self>
     where
-        I: IntoIterator<Item = S>,
+        S: Borrow<ParseBuffer<'s>>,
+        I: IntoIterator<Item = P>,
         I::IntoIter: Clone,
-        S: AsRef<str>;
+        P: AsRef<str>;
 }
 
 /// Parses a meta item for a structure with named fields that consumes all fields.
@@ -185,7 +213,10 @@ pub trait ParseMetaRest: Sized {
     ///
     /// Fields with names in `exclude` should be should be skipped with
     /// [`crate::parse_helpers::skip_named_meta_item`].
-    fn parse_meta_rest(inputs: &[ParseStream], exclude: &[&str]) -> Result<Self>;
+    fn parse_meta_rest<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        exclude: &[&str],
+    ) -> Result<Self>;
 }
 
 macro_rules! impl_parse_meta_item_primitive {
@@ -284,8 +315,11 @@ impl<T: ParseMetaItem, const N: usize> ParseMetaItem for [T; N] {
         Bracket::parse_delimited_meta_item(input, ParseMode::Unnamed)
     }
     #[inline]
-    fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-        Self::parse_meta_flat_unnamed(&[input], 0)
+    fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        _mode: ParseMode,
+    ) -> Result<Self> {
+        Self::parse_meta_flat_unnamed(inputs, 0)
     }
 }
 
@@ -294,7 +328,10 @@ impl<T: ParseMetaItem, const N: usize> ParseMetaFlatUnnamed for [T; N] {
     fn field_count() -> Option<usize> {
         Some(N)
     }
-    fn parse_meta_flat_unnamed(inputs: &[ParseStream], index: usize) -> Result<Self> {
+    fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        index: usize,
+    ) -> Result<Self> {
         let mut a = arrayvec::ArrayVec::<T, N>::new();
         parse_tuple_struct(inputs, N, |stream, _, _| {
             a.push(T::parse_meta_item(stream, ParseMode::Unnamed)?);
@@ -322,8 +359,8 @@ macro_rules! impl_parse_meta_item_collection {
                 Bracket::parse_delimited_meta_item(input, ParseMode::Unnamed)
             }
             #[inline]
-            fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-                Self::parse_meta_flat_unnamed(&[input], 0)
+            fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _mode: ParseMode) -> Result<Self> {
+                Self::parse_meta_flat_unnamed(inputs, 0)
             }
         }
 
@@ -332,9 +369,10 @@ macro_rules! impl_parse_meta_item_collection {
             fn field_count() -> Option<usize> {
                 None
             }
-            fn parse_meta_flat_unnamed(inputs: &[ParseStream], _index: usize) -> Result<Self> {
+            fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _index: usize) -> Result<Self> {
                 let mut $ident = Self::new();
                 for input in inputs {
+                    let input = input.borrow();
                     loop {
                         if input.is_empty() {
                             break;
@@ -351,19 +389,17 @@ macro_rules! impl_parse_meta_item_collection {
         }
 
         impl<$param: ParseMetaItem $(+ $bound $(+ $bounds)*)?> ParseMetaAppend for $ty <$param> {
-            fn parse_meta_append<I, S>(
-                inputs: &[ParseStream],
-                paths: I,
-            ) -> Result<Self>
+            fn parse_meta_append<'s, S, I, P>(inputs: &[S], paths: I) -> Result<Self>
             where
-                I: IntoIterator<Item = S>,
+                S: Borrow<ParseBuffer<'s>>,
+                I: IntoIterator<Item = P>,
                 I::IntoIter: Clone,
-                S: AsRef<str>
+                P: AsRef<str>
             {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
                 let paths = paths.into_iter();
-                parse_struct(inputs.iter().cloned(), |input, p, pspan| {
+                parse_struct(inputs, |input, p, pspan| {
                     if paths.clone().any(|path| path.as_ref() == p) {
                         let $item = parse_named_meta_item(input, pspan)?;
                         $push;
@@ -387,8 +423,8 @@ macro_rules! impl_parse_meta_item_set {
                 Bracket::parse_delimited_meta_item(input, ParseMode::Unnamed)
             }
             #[inline]
-            fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-                Self::parse_meta_flat_unnamed(&[input], 0)
+            fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _mode: ParseMode) -> Result<Self> {
+                Self::parse_meta_flat_unnamed(inputs, 0)
             }
         }
 
@@ -397,10 +433,11 @@ macro_rules! impl_parse_meta_item_set {
             fn field_count() -> Option<usize> {
                 None
             }
-            fn parse_meta_flat_unnamed(inputs: &[ParseStream], _index: usize) -> Result<Self> {
+            fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _index: usize) -> Result<Self> {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
                 for input in inputs {
+                    let input = input.borrow();
                     loop {
                         if input.is_empty() {
                             break;
@@ -422,19 +459,20 @@ macro_rules! impl_parse_meta_item_set {
         }
 
         impl<$param: ParseMetaItem $(+ $bound $(+ $bounds)*)?> ParseMetaAppend for $ty <$param> {
-            fn parse_meta_append<I, S>(
-                inputs: &[ParseStream],
+            fn parse_meta_append<'s, S, I, P>(
+                inputs: &[S],
                 paths: I,
             ) -> Result<Self>
             where
-                I: IntoIterator<Item = S>,
+                S: Borrow<ParseBuffer<'s>>,
+                I: IntoIterator<Item = P>,
                 I::IntoIter: Clone,
-                S: AsRef<str>
+                P: AsRef<str>
             {
                 let errors = Errors::new();
                 let mut $ident = Self::new();
                 let paths = paths.into_iter();
-                parse_struct(inputs.iter().cloned(), |input, p, pspan| {
+                parse_struct(inputs, |input, p, pspan| {
                     if paths.clone().any(|path| path.as_ref() == p) {
                         let span = input.span();
                         let $item = parse_named_meta_item(input, pspan)?;
@@ -465,22 +503,25 @@ macro_rules! impl_parse_meta_item_map {
                 Brace::parse_delimited_meta_item(input, _mode)
             }
             #[inline]
-            fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+            fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _mode: ParseMode) -> Result<Self> {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
-                loop {
-                    if input.is_empty() {
-                        break;
-                    }
-                    let start = input.span();
-                    let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
-                    let span = input.span().join(start).unwrap();
-                    let $value = parse_named_meta_item(input, start)?;
-                    if !$push {
-                        errors.push(span, "Duplicate key");
-                    }
-                    if !input.is_empty() {
-                        input.parse::<Token![,]>()?;
+                for input in inputs {
+                    let input = input.borrow();
+                    loop {
+                        if input.is_empty() {
+                            break;
+                        }
+                        let start = input.span();
+                        let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
+                        let span = input.span().join(start).unwrap();
+                        let $value = parse_named_meta_item(input, start)?;
+                        if !$push {
+                            errors.push(span, "Duplicate key");
+                        }
+                        if !input.is_empty() {
+                            input.parse::<Token![,]>()?;
+                        }
                     }
                 }
                 errors.check()?;
@@ -493,13 +534,14 @@ macro_rules! impl_parse_meta_item_map {
             $kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)? + std::borrow::Borrow<syn::Path>,
             $vp: ParseMetaItem,
         {
-            fn parse_meta_rest(
-                inputs: &[ParseStream],
+            fn parse_meta_rest<'s, S: Borrow<ParseBuffer<'s>>>(
+                inputs: &[S],
                 exclude: &[&str],
             ) -> Result<Self> {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
                 for input in inputs {
+                    let input = input.borrow();
                     loop {
                         if input.is_empty() {
                             break;
@@ -573,8 +615,11 @@ impl<T: ParseMetaItem, P: Parse + Default> ParseMetaItem for Punctuated<T, P> {
         Bracket::parse_delimited_meta_item(input, ParseMode::Unnamed)
     }
     #[inline]
-    fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-        Self::parse_meta_flat_unnamed(&[input], 0)
+    fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        _mode: ParseMode,
+    ) -> Result<Self> {
+        Self::parse_meta_flat_unnamed(inputs, 0)
     }
 }
 
@@ -583,9 +628,13 @@ impl<T: ParseMetaItem, P: Parse + Default> ParseMetaFlatUnnamed for Punctuated<T
     fn field_count() -> Option<usize> {
         None
     }
-    fn parse_meta_flat_unnamed(inputs: &[ParseStream], _index: usize) -> Result<Self> {
+    fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        _index: usize,
+    ) -> Result<Self> {
         let mut p = Punctuated::new();
         for input in inputs {
+            let input = input.borrow();
             loop {
                 if input.is_empty() {
                     break;
@@ -703,8 +752,14 @@ impl ParseMetaItem for () {
         Ok(())
     }
     #[inline]
-    fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-        input.parse::<Nothing>().map(|_| ())
+    fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        _mode: ParseMode,
+    ) -> Result<Self> {
+        for input in inputs {
+            input.borrow().parse::<Nothing>()?;
+        }
+        Ok(())
     }
     #[inline]
     fn parse_meta_item_flag(_: Span) -> Result<Self> {
@@ -720,8 +775,8 @@ macro_rules! impl_parse_meta_item_tuple {
                 Paren::parse_delimited_meta_item(input, ParseMode::Unnamed)
             }
             #[inline]
-            fn parse_meta_item_inline(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-                Self::parse_meta_flat_unnamed(&[input], 0)
+            fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _mode: ParseMode) -> Result<Self> {
+                Self::parse_meta_flat_unnamed(inputs, 0)
             }
         }
 
@@ -730,7 +785,7 @@ macro_rules! impl_parse_meta_item_tuple {
             fn field_count() -> Option<usize> {
                 Some($len)
             }
-            fn parse_meta_flat_unnamed(inputs: &[ParseStream], _index: usize) -> Result<Self> {
+            fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _index: usize) -> Result<Self> {
                 $(let mut $item = None;)+
                 parse_tuple_struct(inputs, $len, |stream, _, index| {
                     match index {

@@ -1,6 +1,6 @@
 use deluxe_core::Errors;
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, quote_spanned, ToTokens};
+use quote::{quote, quote_spanned};
 use syn::spanned::Spanned;
 
 use crate::field::*;
@@ -38,7 +38,7 @@ fn impl_for_struct(
         .as_ref()
         .map(|s| s.fields.iter().any(|f| f.is_flat()))
         .unwrap_or(false);
-    let (parse, parse_flat, inline, flag, field_names) = struct_attr
+    let (parse, parse_flat, inline, flag, field_names, mut extra) = struct_attr
         .as_mut()
         .map(|struct_attr| {
             for f in &mut struct_attr.fields {
@@ -54,17 +54,17 @@ fn impl_for_struct(
             let inline_expr = match &struct_.fields {
                 syn::Fields::Named(_) => syn::parse_quote_spanned! { Span::mixed_site() =>
                     <Self as #crate_::ParseMetaFlatNamed>::parse_meta_flat_named(
-                        &[input],
+                        inputs,
                         "",
-                        true,
+                        !<Self as #crate_::ParseMetaFlatNamed>::ACCEPTS_ALL,
                     )
                 },
                 syn::Fields::Unnamed(_) => syn::parse_quote_spanned! { Span::mixed_site() =>
-                    <Self as #crate_::ParseMetaFlatUnnamed>::parse_meta_flat_unnamed(&[input], 0)
+                    <Self as #crate_::ParseMetaFlatUnnamed>::parse_meta_flat_unnamed(inputs, 0)
                 },
                 syn::Fields::Unit => syn::parse_quote_spanned! { Span::mixed_site() =>
                     <Self as #crate_::ParseMetaItem>::parse_meta_item_inline(
-                        input, #crate_::ParseMode::Unnamed,
+                        inputs, #crate_::ParseMode::Unnamed,
                     )
                 },
             };
@@ -73,22 +73,28 @@ fn impl_for_struct(
                 parse,
                 inline,
                 flag,
+                extra_traits,
             } = struct_attr.to_parsing_tokens(
-                &struct_.fields,
+                input,
                 crate_,
                 TokenMode::ParseMetaItem,
-                &inline_expr,
+                &syn::parse_quote_spanned! { Span::mixed_site() =>
+                    {
+                        let inputs = [input];
+                        let inputs = inputs.as_slice();
+                        #inline_expr
+                    }
+                },
                 &syn::parse_quote_spanned! { Span::mixed_site() =>
                     <Self as #crate_::ParseMetaFlatNamed>::field_names()
                 },
             );
-            let (parse_flat, inline) = if struct_attr.transparent.unwrap_or(false)
-                || matches!(&struct_.fields, syn::Fields::Unit)
-            {
-                (None, inline)
-            } else {
-                (inline, Some(inline_expr.into_token_stream()))
-            };
+            let (parse_flat, inline) =
+                if struct_attr.is_transparent() || matches!(&struct_.fields, syn::Fields::Unit) {
+                    (None, inline)
+                } else {
+                    (inline, Some(inline_expr))
+                };
             let field_names = match &struct_.fields {
                 syn::Fields::Named(_) => Some(struct_attr.to_field_names_tokens(crate_, priv_)),
                 syn::Fields::Unnamed(_) => {
@@ -108,7 +114,7 @@ fn impl_for_struct(
                 }
                 _ => None,
             };
-            (parse, parse_flat, inline, flag, field_names)
+            (parse, parse_flat, inline, flag, field_names, extra_traits)
         })
         .unwrap_or_else(|| {
             let fail = quote_spanned! { Span::mixed_site() =>
@@ -120,11 +126,12 @@ fn impl_for_struct(
                 Some(fail.clone()),
                 Some(fail.clone()),
                 Some(fail),
+                None,
             )
         });
 
-    Some(match &struct_.fields {
-        syn::Fields::Named(_) => {
+    match (&struct_.fields, parse_flat) {
+        (syn::Fields::Named(_), Some(parse_flat)) => {
             let struct_ident = &input.ident;
             let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
 
@@ -148,68 +155,59 @@ fn impl_for_struct(
                     None
                 })
                 .into_iter();
-
-            MetaDef {
-                parse,
-                inline,
-                flag,
-                extra: parse_flat.map(|parse_flat| {
-                    quote_spanned! { Span::mixed_site() =>
-                        impl #impl_generics #crate_::ParseMetaFlatNamed for #struct_ident #type_generics #where_clause {
-                            #(const ACCEPTS_ALL: #priv_::bool = #accepts_all;)*
-                            #[inline]
-                            fn field_names() -> &'static [&'static #priv_::str] {
-                                #field_names
-                            }
-                            #[inline]
-                            fn parse_meta_flat_named(
-                                inputs: &[#priv_::ParseStream],
-                                prefix: &#priv_::str,
-                                validate: #priv_::bool,
-                            ) -> #crate_::Result<Self> {
-                                #parse_flat
-                            }
-                        }
+            extra.get_or_insert_with(TokenStream::new).extend(quote_spanned! { Span::mixed_site() =>
+                impl #impl_generics #crate_::ParseMetaFlatNamed for #struct_ident #type_generics #where_clause {
+                    #(const ACCEPTS_ALL: #priv_::bool = #accepts_all;)*
+                    #[inline]
+                    fn field_names() -> &'static [&'static #priv_::str] {
+                        #field_names
                     }
-                }),
-                crate_path,
-                priv_path,
-            }
+                    #[inline]
+                    fn parse_meta_flat_named<'____s, ____S>(
+                        inputs: &[____S],
+                        prefix: &#priv_::str,
+                        validate: #priv_::bool,
+                    ) -> #crate_::Result<Self>
+                    where
+                        ____S: #priv_::Borrow<#priv_::ParseBuffer<'____s>>,
+                    {
+                        #parse_flat
+                    }
+                }
+            });
         }
-        syn::Fields::Unnamed(_) => {
+        (syn::Fields::Unnamed(_), Some(parse_flat)) => {
             let struct_ident = &input.ident;
             let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
             let index_mut = any_flat.then(|| quote! { mut });
-            MetaDef {
-                parse,
-                inline,
-                flag,
-                extra: parse_flat.map(|parse_flat| {
-                    quote_spanned! { Span::mixed_site() =>
-                        impl #impl_generics #crate_::ParseMetaFlatUnnamed for #struct_ident #type_generics #where_clause {
-                            #[inline]
-                            fn field_count() -> #priv_::Option<#priv_::usize> {
-                                #field_names
-                            }
-                            #[inline]
-                            fn parse_meta_flat_unnamed(inputs: &[#priv_::ParseStream], #index_mut index: #priv_::usize) -> #crate_::Result<Self> {
-                                #parse_flat
-                            }
-                        }
+            extra.get_or_insert_with(TokenStream::new).extend(quote_spanned! { Span::mixed_site() =>
+                impl #impl_generics #crate_::ParseMetaFlatUnnamed for #struct_ident #type_generics #where_clause {
+                    #[inline]
+                    fn field_count() -> #priv_::Option<#priv_::usize> {
+                        #field_names
                     }
-                }),
-                crate_path,
-                priv_path,
-            }
+                    #[inline]
+                    fn parse_meta_flat_unnamed<'____s, ____S>(
+                        inputs: &[____S],
+                        #index_mut index: #priv_::usize,
+                    ) -> #crate_::Result<Self>
+                    where
+                        ____S: #priv_::Borrow<#priv_::ParseBuffer<'____s>>,
+                    {
+                        #parse_flat
+                    }
+                }
+            });
         }
-        _ => MetaDef {
-            parse,
-            inline,
-            flag,
-            extra: None,
-            crate_path,
-            priv_path,
-        },
+        _ => {}
+    }
+    Some(MetaDef {
+        parse,
+        inline,
+        flag,
+        extra,
+        crate_path,
+        priv_path,
     })
 }
 
@@ -267,7 +265,7 @@ fn impl_for_enum(input: &syn::DeriveInput, errors: &Errors) -> Option<MetaDef> {
             <Self as #crate_::ParseMetaFlatNamed>::parse_meta_flat_named(
                 &[input],
                 <Self as #crate_::ParseMetaFlatNamed>::field_names(),
-                true,
+                !<Self as #crate_::ParseMetaFlatNamed>::ACCEPTS_ALL,
             )
         }),
         flag: Some(quote_spanned! { Span::mixed_site() =>
@@ -280,11 +278,14 @@ fn impl_for_enum(input: &syn::DeriveInput, errors: &Errors) -> Option<MetaDef> {
                     #field_names
                 }
                 #[inline]
-                fn parse_meta_flat_named(
-                    inputs: &[#priv_::ParseStream],
+                fn parse_meta_flat_named<'____s, ____S>(
+                    inputs: &[____S],
                     prefix: &#priv_::str,
                     validate: #priv_::bool,
-                ) -> #crate_::Result<Self> {
+                ) -> #crate_::Result<Self>
+                where
+                    ____S: #priv_::Borrow<#priv_::ParseBuffer<'____s>>,
+                {
                     #parse
                 }
             }
@@ -324,10 +325,13 @@ pub fn impl_parse_meta_item(input: syn::DeriveInput, errors: &Errors) -> TokenSt
     let inline = inline.map(|inline| {
         quote_spanned! { Span::mixed_site() =>
             #[inline]
-            fn parse_meta_item_inline(
-                input: #priv_::ParseStream,
+            fn parse_meta_item_inline<'____s, ____S>(
+                inputs: &[____S],
                 _mode: #crate_::ParseMode,
-            ) -> #crate_::Result<Self> {
+            ) -> #crate_::Result<Self>
+            where
+                ____S: #priv_::Borrow<#priv_::ParseBuffer<'____s>>,
+            {
                 #inline
             }
         }

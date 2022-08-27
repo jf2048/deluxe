@@ -2,7 +2,10 @@
 
 use crate::{Error, Errors, ParseMetaItem, ParseMode, Result};
 use proc_macro2::{Span, TokenStream, TokenTree};
-use std::{borrow::Cow, collections::HashSet};
+use std::{
+    borrow::{Borrow, Cow},
+    collections::HashSet,
+};
 pub use syn::{
     parse::Nothing,
     token::{Brace, Bracket, Paren},
@@ -46,7 +49,7 @@ pub trait ParseDelimited: sealed::Sealed {
         input: ParseStream,
         mode: ParseMode,
     ) -> Result<T> {
-        Self::parse_delimited_with(input, |inner| T::parse_meta_item_inline(inner, mode))
+        Self::parse_delimited_with(input, |inner| T::parse_meta_item_inline(&[inner], mode))
     }
 }
 
@@ -97,6 +100,25 @@ pub fn parse_eof_or_trailing_comma(input: ParseStream) -> Result<()> {
     Ok(())
 }
 
+/// Runs a parsing function from an empty token stream.
+///
+/// Creates an empty token stream and then calls `func` on it. Any errors returned from `func` will
+/// be changed to make them spanned with `span`.
+#[inline]
+pub fn parse_empty<T, F>(span: proc_macro2::Span, func: F) -> Result<T>
+where
+    F: FnOnce(ParseStream) -> Result<T>,
+{
+    syn::parse::Parser::parse2(func, TokenStream::new()).map_err(|e| {
+        let mut iter = e.into_iter();
+        let mut err = Error::new(span, iter.next().unwrap());
+        while let Some(e) = iter.next() {
+            err.combine(e);
+        }
+        err
+    })
+}
+
 /// Parses a [`ParseMetaItem`](crate::ParseMetaItem) inline from an empty token stream.
 ///
 /// Creates an empty token stream and then calls
@@ -108,11 +130,32 @@ pub fn parse_empty_meta_item<T: ParseMetaItem>(
     span: proc_macro2::Span,
     mode: ParseMode,
 ) -> Result<T> {
-    let stream = quote::quote_spanned! { span => };
-    syn::parse::Parser::parse2(
-        |stream: ParseStream<'_>| T::parse_meta_item_inline(stream, mode),
-        stream,
-    )
+    parse_empty(span, |input| T::parse_meta_item_inline(&[input], mode))
+}
+
+/// Runs a parsing function on the first stream in a stream list, then ensures the rest of the
+/// streams are empty.
+pub fn parse_first<'s, T, F, S>(inputs: &[S], mode: ParseMode, func: F) -> Result<T>
+where
+    F: FnOnce(ParseStream) -> Result<T>,
+    S: Borrow<ParseBuffer<'s>>,
+{
+    let mut iter = inputs.iter();
+    if let Some(input) = iter.next() {
+        let input = input.borrow();
+        let ret = func(input)?;
+        parse_eof_or_trailing_comma(input)?;
+        while let Some(next) = iter.next() {
+            next.borrow().parse::<Nothing>()?;
+        }
+        Ok(ret)
+    } else {
+        let span = match mode {
+            ParseMode::Named(span) => span,
+            _ => Span::call_site(),
+        };
+        parse_empty(span, func)
+    }
 }
 
 /// Parses a [`ParseMetaItem`](crate::ParseMetaItem) following a name.
@@ -156,7 +199,7 @@ pub fn parse_named_meta_item_with<T, I, II, IF>(
 ) -> Result<T>
 where
     I: FnOnce(ParseStream, ParseMode) -> Result<T>,
-    II: FnOnce(ParseStream, ParseMode) -> Result<T>,
+    II: FnOnce(&[ParseStream], ParseMode) -> Result<T>,
     IF: FnOnce(proc_macro2::Span) -> Result<T>,
 {
     if input.peek(Token![=]) {
@@ -164,7 +207,7 @@ where
         parse(input, ParseMode::Named(name_span))
     } else if input.peek(Paren) {
         let content = Paren::parse_delimited(input)?;
-        let result = parse_inline(&content, ParseMode::Named(name_span))?;
+        let result = parse_inline(&[&content], ParseMode::Named(name_span))?;
         parse_eof_or_trailing_comma(&content)?;
         Ok(result)
     } else {
@@ -212,13 +255,14 @@ macro_rules! parse_named_meta_item_with {
 /// the first failure of `func`. A trailing comma will be consumed only if the return value is less
 /// than `len`.
 #[inline]
-pub fn parse_tuple_struct<F: FnMut(ParseStream, &[ParseStream], usize) -> Result<()>>(
-    mut inputs: &[ParseStream],
-    len: usize,
-    mut func: F,
-) -> Result<usize> {
+pub fn parse_tuple_struct<'s, F, S>(mut inputs: &[S], len: usize, mut func: F) -> Result<usize>
+where
+    S: Borrow<ParseBuffer<'s>>,
+    F: FnMut(ParseStream, &[S], usize) -> Result<()>,
+{
     let mut counter = 0;
-    while let Some(input) = inputs.first().cloned() {
+    while let Some(input) = inputs.first() {
+        let input = input.borrow();
         loop {
             if input.is_empty() {
                 break;
@@ -251,12 +295,13 @@ pub fn parse_tuple_struct<F: FnMut(ParseStream, &[ParseStream], usize) -> Result
 ///
 /// Returns `Err` on any parsing errors or the first failure of `func`.
 #[inline]
-pub fn parse_struct<'i, I, F>(inputs: I, mut func: F) -> Result<()>
+pub fn parse_struct<'s, F, S>(inputs: &[S], mut func: F) -> Result<()>
 where
-    I: IntoIterator<Item = ParseStream<'i>>,
+    S: Borrow<ParseBuffer<'s>>,
     F: FnMut(ParseStream, &str, Span) -> Result<()>,
 {
-    for input in inputs.into_iter() {
+    for input in inputs {
+        let input = input.borrow();
         loop {
             if input.is_empty() {
                 break;
@@ -323,9 +368,10 @@ fn parse_tokens<T, F: FnOnce(ParseStream) -> Result<T>>(input: TokenStream, func
 /// [`ref_tokens`] or [`take_tokens`] before passing any token streams into this function.
 ///
 /// Each stream will be parsed for a parenthesized group. Then, `func` will be called with a list
-/// of every [`ParseBuffer`](syn::parse::ParseBuffer) inside these groups. An end-of-stream (or
-/// trailing comma followed by end-of-stream) will be consumed from each buffer after `func`
-/// returns. Callers should ensure the success path consumes all other tokens in each buffer.
+/// of every [`ParseBuffer`](syn::parse::ParseBuffer) inside these groups, and the corresponding
+/// [`Span`](proc_macro2::Span) for the path of that group. An end-of-stream (or trailing comma
+/// followed by end-of-stream) will be consumed from each buffer after `func` returns. Callers
+/// should ensure the success path consumes all other tokens in each buffer.
 ///
 /// Structs with named fields or tuple structs should be parsed by respectively calling
 /// [`parse_struct`] or [`parse_tuple_struct`].
@@ -335,32 +381,38 @@ fn parse_tokens<T, F: FnOnce(ParseStream) -> Result<T>>(input: TokenStream, func
 pub fn parse_struct_attr_tokens<T, I, F, R>(inputs: I, func: F) -> Result<R>
 where
     T: quote::ToTokens,
-    I: IntoIterator<Item = T>,
-    F: FnOnce(&[ParseBuffer]) -> Result<R>,
+    I: IntoIterator<Item = (T, Span)>,
+    F: FnOnce(&[ParseBuffer], &[Span]) -> Result<R>,
 {
-    fn parse_next<T, I, F, R>(mut iter: I, buffers: Vec<ParseBuffer>, func: F) -> Result<R>
+    fn parse_next<T, I, F, R>(
+        mut iter: I,
+        buffers: Vec<ParseBuffer>,
+        mut spans: Vec<Span>,
+        func: F,
+    ) -> Result<R>
     where
         T: quote::ToTokens,
-        I: Iterator<Item = T>,
-        F: FnOnce(&[ParseBuffer]) -> Result<R>,
+        I: Iterator<Item = (T, Span)>,
+        F: FnOnce(&[ParseBuffer], &[Span]) -> Result<R>,
     {
-        if let Some(tokens) = iter.next() {
+        if let Some((tokens, span)) = iter.next() {
             let tokens = tokens.into_token_stream();
             parse_tokens(tokens, |stream| {
                 let content = Paren::parse_delimited(stream)?;
-                let mut buffers: Vec<ParseBuffer> = buffers;
+                let mut buffers: Vec<ParseBuffer> = buffers; // move to shrink the lifetime
                 buffers.push(content);
-                parse_next(iter, buffers, func)
+                spans.push(span);
+                parse_next(iter, buffers, spans, func)
             })
         } else {
-            let r = func(&buffers)?;
+            let r = func(&buffers, &spans)?;
             for buffer in buffers {
                 parse_eof_or_trailing_comma(&buffer)?;
             }
             Ok(r)
         }
     }
-    parse_next(inputs.into_iter(), Vec::new(), func)
+    parse_next(inputs.into_iter(), Vec::new(), Vec::new(), func)
 }
 
 /// Converts a [`syn::Path`] to a `String`.
@@ -457,16 +509,16 @@ pub fn has_paths(paths: &HashSet<&str>, keys: &[&[&str]]) -> bool {
 
 /// Creates a span encompassing a collection of [`ParseStream`](syn::parse::ParseStream)s.
 ///
-/// Returns a span joined togther from each item in the iterator, using
+/// Returns a span joined togther from each item in the slice, using
 /// [`Span::join`](proc_macro2::Span::join).
 #[inline]
-pub fn inputs_span<'a>(inputs: impl IntoIterator<Item = &'a ParseStream<'a>>) -> Span {
-    let mut iter = inputs.into_iter();
+pub fn inputs_span<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S]) -> Span {
+    let mut iter = inputs.iter();
     let first = iter.next();
     if let Some(input) = first {
-        let mut span = input.span();
+        let mut span = input.borrow().span();
         for next in iter {
-            if let Some(joined) = span.join(next.span()) {
+            if let Some(joined) = span.join(next.borrow().span()) {
                 span = joined;
             }
         }
@@ -521,26 +573,27 @@ pub fn check_unknown_attribute(path: &str, span: Span, fields: &[&str], errors: 
     false
 }
 
-/// Returns an iterator of [`TokenStream`](proc_macro2::TokenStream) references from a
-/// matched [`ParseAttributes`](crate::ParseAttributes).
+/// Returns an iterator of pairs of [`TokenStream`](proc_macro2::TokenStream) references and the
+/// corresponding path [`Span`](proc_macro2::Span) from a matched
+/// [`ParseAttributes`](crate::ParseAttributes).
 #[inline]
-pub fn ref_tokens<'t, P, T>(input: &'t T) -> impl Iterator<Item = &TokenStream>
+pub fn ref_tokens<'t, P, T>(input: &'t T) -> impl Iterator<Item = (&TokenStream, Span)>
 where
     P: crate::ParseAttributes<'t, T>,
     T: crate::HasAttributes,
 {
     T::attrs(input)
         .iter()
-        .filter_map(|a| P::path_matches(&a.path).then(|| &a.tokens))
+        .filter_map(|a| P::path_matches(&a.path).then(|| (&a.tokens, a.path.span())))
 }
 
-/// Returns an iterator of [`TokenStream`](proc_macro2::TokenStream)s from a
-/// matched [`ExtractAttributes`](crate::ExtractAttributes).
+/// Returns an iterator of [`TokenStream`](proc_macro2::TokenStream)s and the corresponding path
+/// [`Span`](proc_macro2::Span) from a matched [`ExtractAttributes`](crate::ExtractAttributes).
 ///
 /// All matching attributes will be removed from `input`. The resulting
 /// [`TokenStream`](proc_macro2::TokenStream)s are moved into the iterator.
 #[inline]
-pub fn take_tokens<E, T>(input: &mut T) -> Result<impl Iterator<Item = TokenStream>>
+pub fn take_tokens<E, T>(input: &mut T) -> Result<impl Iterator<Item = (TokenStream, Span)>>
 where
     E: crate::ExtractAttributes<T>,
     T: crate::HasAttributes,
@@ -550,7 +603,8 @@ where
     let mut index = 0;
     while index < attrs.len() {
         if E::path_matches(&attrs[index].path) {
-            tokens.push(attrs.remove(index).tokens);
+            let attr = attrs.remove(index);
+            tokens.push((attr.tokens, attr.path.span()));
         } else {
             index += 1;
         }
@@ -558,17 +612,12 @@ where
     Ok(tokens.into_iter())
 }
 
-/// Copies a [`ParseStream`](syn::parse::ParseStream) slice into an iterator.
+/// Gets the first [`Span`](proc_macro2::Span) in a list of spans.
 ///
-/// Used to convert a list of streams before calling [`parse_struct`]. If the struct contains any
-/// `#[deluxe(flatten)]`, `#[deluxe(rest)]`, or `#[deluxe(append)]` fields, then [`fork_inputs`]
-/// should be called instead since the inputs will need to be parsed multiple times.
+/// Returns [`Span::call_site`](proc_macro2::Span::call_site) if the slice is empty.
 #[inline]
-pub fn ref_inputs<'s, S>(inputs: &'s [S]) -> impl Iterator<Item = ParseStream<'s>> + 's
-where
-    S: std::borrow::Borrow<ParseBuffer<'s>> + 's,
-{
-    inputs.iter().map(|s| s.borrow())
+pub fn first_span(spans: &[Span]) -> Span {
+    spans.first().cloned().unwrap_or_else(Span::call_site)
 }
 
 /// Forks all streams in a [`ParseStream`](syn::parse::ParseStream) slice into a new [`Vec`].
@@ -577,16 +626,9 @@ where
 #[inline]
 pub fn fork_inputs<'s, S>(inputs: &[S]) -> Vec<ParseBuffer<'s>>
 where
-    S: std::borrow::Borrow<ParseBuffer<'s>> + 's,
+    S: Borrow<ParseBuffer<'s>>,
 {
     inputs.iter().map(|s| s.borrow().fork()).collect()
-}
-
-/// Coverts a [`ParseBuffer`](syn::parse::ParseBuffer) slice to a slice of
-/// [`ParseStream`](syn::parse::ParseStream).
-#[inline]
-pub fn ref_buffers<'s>(inputs: &'s [ParseBuffer<'s>]) -> Vec<ParseStream<'s>> {
-    inputs.iter().collect()
 }
 
 /// Appends a "too many enum variants" error.

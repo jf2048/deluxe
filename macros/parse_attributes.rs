@@ -56,26 +56,33 @@ fn impl_for_struct<'i>(
         .as_ref()
         .map(|s| {
             let ItemDef { inline, .. } = s.to_parsing_tokens(
-                &struct_.fields,
+                input,
                 crate_,
                 mode.into_token_mode(),
                 &syn::parse_quote_spanned! { Span::mixed_site() => inline(input) },
                 &syn::parse_quote_spanned! { Span::mixed_site() => allowed },
             );
-            let field_names = matches!(struct_.fields, syn::Fields::Named(_))
-                .then(|| {
-                    struct_attr
+            let pre = match &struct_.fields {
+                syn::Fields::Named(_) => {
+                    let field_names = struct_attr
                         .as_ref()
                         .map(|s| s.to_field_names_tokens(crate_, priv_))
-                        .unwrap_or_else(|| quote_spanned! { Span::mixed_site() => &[] })
-                })
-                .into_iter();
+                        .unwrap_or_else(|| quote_spanned! { Span::mixed_site() => &[] });
+                    quote_spanned! { Span::mixed_site() =>
+                        let allowed = #field_names;
+                        let prefix = "";
+                    }
+                }
+                syn::Fields::Unnamed(_) => {
+                    quote_spanned! { Span::mixed_site() =>
+                        let mut index = 0;
+                    }
+                }
+                _ => quote::quote! {},
+            };
             quote_spanned! { Span::mixed_site() =>
-                #(
-                    let allowed = #field_names;
-                    let prefix = "";
-                )*
                 let validate = true;
+                #pre
                 #inline
             }
         })
@@ -175,8 +182,8 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
             errors.push_spanned(
                 union_.union_token,
                 match mode {
-                    Mode::Parse => "Union not supported with derive(ParseAttributes)",
-                    Mode::Extract => "Union not supported with derive(ExtractAttributes)",
+                    Mode::Parse => "union not supported with derive(ParseAttributes)",
+                    Mode::Extract => "union not supported with derive(ExtractAttributes)",
                 },
             );
             return Default::default();
@@ -321,7 +328,8 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
             #sig {
                 #priv_::parse_helpers::parse_struct_attr_tokens(
                     #priv_::parse_helpers::#get_tokens::<Self, _>(obj) #tokens_try,
-                    |inputs| {
+                    |inputs, spans| {
+                        let _mode = #crate_::ParseMode::Named(#priv_::parse_helpers::first_span(spans));
                         #parse
                     }
                 )

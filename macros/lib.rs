@@ -131,19 +131,27 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///
 /// - ##### `#[deluxe(transparent)]`
 ///
-///   Can only be used on a struct with a single parseable field. Causes the struct to parse as if
-///   it were the inner field. The field cannot be [`flatten`](#deluxeflatten-1),
-///   [`append`](#deluxeappend) or [`rest`](#deluxerest). The struct can still contain
+///   Parses a struct with one field as if it were the field. Can only be used on a struct with a
+///   single parseable field. Analogous to `#[repr(transparent)]`. The struct can still contain
 ///   fields that are [`skip`](#deluxeskip), as those will be ignored by `transparent`.
 ///
-///   Currently, when including a type that is `transparent` in another struct/enum, it is also not
-///   possible to use [`flatten`](#deluxeflatten-1), [`append`](#deluxeappend) or
-///   [`rest`](#deluxerest) on it. This limitation happens because Deluxe does not know which
-///   traits to implement. As a workaround, those traits can be manually implemented if necessary.
+/// - ##### `#[deluxe(transparent(flatten)]`
+///
+///   `#[deluxe(transparent(flatten, append)]`
+///
+///   `#[deluxe(transparent(rest)]`
+///
+///   Parses a struct with one field as if it were the field, additionally implementing the traits
+///   required to use `flatten`, `rest`, or `append`.  Can only be used on a struct with a
+///   single parseable field.
+///
+///   Currently, it is required to provide these additional attributes to generate the trait
+///   definitions to use [`flatten`](#deluxeflatten-1), [`append`](#deluxeappend) or
+///   [`rest`](#deluxerest) on this type.
 ///
 /// - ##### `#[deluxe(allow_unknown_fields)]`
 ///
-///   Ignore any tokens and do not throw an error when an unknown field is encountered.
+///   Ignore any tokens and do not generate an error when an unknown field is encountered.
 ///
 /// - ##### `#[deluxe(crate = path)]`
 ///
@@ -178,7 +186,7 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///
 /// - ##### `#[deluxe(allow_unknown_fields)]`
 ///
-///   Ignore any tokens and do not throw an error when an unknown field is encountered in this
+///   Ignore any tokens and do not generate an error when an unknown field is encountered in this
 ///   variant.
 ///
 /// ### Field Attributes
@@ -241,7 +249,7 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 /// - ##### `#[deluxe(append)]`
 ///
 ///   Allows duplicates of this field. Additional fields parsed with the same name will be appended
-///   on to the previous value.
+///   on to the previous value. This attribute is only allowed on named fields.
 ///
 ///   This attribute is implemented by calling
 ///   [`ParseMetaAppend::parse_meta_append`](deluxe_core::ParseMetaAppend::parse_meta_append). Some
@@ -271,7 +279,9 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///   Fields using this attribute are not required to implement
 ///   [`ParseMetaItem`](crate::ParseMetaItem).
 ///
-///   `parse_meta_item_flag` implementations can call
+///   `parse_meta_item_inline` implementations can call
+///   [`parse_first`](deluxe_core::parse_helpers::parse_first) to simply delegate the impementation
+///   to `parse_meta_item`. `parse_meta_item_flag` implementations can call
 ///   [`flag_disallowed_error`](deluxe_core::parse_helpers::flag_disallowed_error) for a standard
 ///   error if flags are not supported by the target type.
 ///
