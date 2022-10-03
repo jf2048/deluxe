@@ -263,10 +263,11 @@ impl<T: ParseMetaFlatUnnamed> ParseMetaFlatUnnamed for SpannedValue<T> {
     }
     fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(
         inputs: &[S],
+        mode: ParseMode,
         index: usize,
     ) -> Result<Self> {
         let mut span = crate::parse_helpers::inputs_span(inputs);
-        let value = T::parse_meta_flat_unnamed(inputs, index)?;
+        let value = T::parse_meta_flat_unnamed(inputs, mode, index)?;
         if let Some(closed) = span.join(inputs_span(inputs)) {
             span = closed;
         }
@@ -282,11 +283,12 @@ impl<T: ParseMetaFlatNamed> ParseMetaFlatNamed for SpannedValue<T> {
     }
     fn parse_meta_flat_named<'s, S: Borrow<ParseBuffer<'s>>>(
         inputs: &[S],
+        mode: ParseMode,
         prefix: &str,
         validate: bool,
     ) -> Result<Self> {
         let mut span = crate::parse_helpers::inputs_span(inputs);
-        let value = T::parse_meta_flat_named(inputs, prefix, validate)?;
+        let value = T::parse_meta_flat_named(inputs, mode, prefix, validate)?;
         if let Some(closed) = span.join(inputs_span(inputs)) {
             span = closed;
         }

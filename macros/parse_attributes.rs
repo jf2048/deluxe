@@ -2,9 +2,8 @@ use std::borrow::Cow;
 
 use deluxe_core::Errors;
 use proc_macro2::{Span, TokenStream};
-use quote::quote_spanned;
 
-use crate::field::*;
+use crate::types::*;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Mode {
@@ -59,35 +58,39 @@ fn impl_for_struct<'i>(
                 input,
                 crate_,
                 mode.into_token_mode(),
-                &syn::parse_quote_spanned! { Span::mixed_site() => inline(input) },
-                &syn::parse_quote_spanned! { Span::mixed_site() => allowed },
+                &parse_quote_mixed! { inline(input) },
+                &parse_quote_mixed! { allowed },
             );
             let pre = match &struct_.fields {
                 syn::Fields::Named(_) => {
                     let field_names = struct_attr
                         .as_ref()
                         .map(|s| s.to_field_names_tokens(crate_, priv_))
-                        .unwrap_or_else(|| quote_spanned! { Span::mixed_site() => &[] });
-                    quote_spanned! { Span::mixed_site() =>
+                        .unwrap_or_else(|| quote_mixed! { &[] });
+                    let accepts_all = struct_attr
+                        .as_ref()
+                        .and_then(|s| s.to_accepts_all_tokens(crate_))
+                        .unwrap_or_else(|| quote_mixed! { false });
+                    quote_mixed! {
                         let allowed = #field_names;
+                        let validate = !(#accepts_all);
                         let prefix = "";
                     }
                 }
                 syn::Fields::Unnamed(_) => {
-                    quote_spanned! { Span::mixed_site() =>
+                    quote_mixed! {
                         let mut index = 0;
                     }
                 }
                 _ => quote::quote! {},
             };
-            quote_spanned! { Span::mixed_site() =>
-                let validate = true;
+            quote_mixed! {
                 #pre
                 #inline
             }
         })
         .unwrap_or_else(|| {
-            quote_spanned! { Span::mixed_site() =>
+            quote_mixed! {
                 #priv_::unreachable!()
             }
         });
@@ -138,14 +141,18 @@ fn impl_for_enum<'i>(
         .map(|e| {
             let parse = e.to_inline_parsing_tokens(crate_, mode.into_token_mode());
             let field_names = e.to_field_names_tokens(crate_, priv_);
-            quote_spanned! { Span::mixed_site() =>
+            let accepts_all = e
+                .to_accepts_all_tokens(crate_)
+                .unwrap_or_else(|| quote_mixed! { false });
+            quote_mixed! {
                 let allowed = #field_names;
+                let validate = !(#accepts_all);
                 let prefix = "";
                 #parse
             }
         })
         .unwrap_or_else(|| {
-            quote_spanned! { Span::mixed_site() =>
+            quote_mixed! {
                 #priv_::unreachable!()
             }
         });
@@ -250,7 +257,7 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
         }
         let ty = syn::Ident::new(&ty, Span::mixed_site());
         generics.params.insert(0, syn::parse_quote! { #ty });
-        Cow::Owned(syn::parse_quote_spanned! { Span::mixed_site() => #ty })
+        Cow::Owned(parse_quote_mixed! { #ty })
     });
 
     if !container_is_ref {
@@ -283,43 +290,43 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
     let (impl_generics, _, where_clause) = generics.split_for_impl();
 
     let matches = if attributes.is_empty() {
-        quote_spanned! { Span::mixed_site() => true }
+        quote_mixed! { true }
     } else {
         let matches = attributes.iter().map(|p| {
             let segs = p.segments.iter().map(|s| s.ident.to_string());
-            quote_spanned! { Span::mixed_site() => &[#(#segs),*] }
+            quote_mixed! { &[#(#segs),*] }
         });
-        quote_spanned! { Span::mixed_site() =>
+        quote_mixed! {
             #(#priv_::parse_helpers::path_matches(path, #matches))||*
         }
     };
 
     let sig = match mode {
-        Mode::Parse => quote_spanned! { Span::mixed_site() =>
+        Mode::Parse => quote_mixed! {
             fn parse_attributes(obj: &#container_lifetime #container_ty) -> #crate_::Result<Self>
         },
-        Mode::Extract => quote_spanned! { Span::mixed_site() =>
+        Mode::Extract => quote_mixed! {
             fn extract_attributes(obj: &mut #container_ty) -> #crate_::Result<Self>
         },
     };
     let trait_ = match mode {
-        Mode::Parse => quote_spanned! { Span::mixed_site() =>
+        Mode::Parse => quote_mixed! {
             #crate_::ParseAttributes<#container_lifetime, #container_ty>
         },
-        Mode::Extract => quote_spanned! { Span::mixed_site() =>
+        Mode::Extract => quote_mixed! {
             #crate_::ExtractAttributes<#container_ty>
         },
     };
     let get_tokens = match mode {
-        Mode::Parse => quote_spanned! { Span::mixed_site() => ref_tokens },
-        Mode::Extract => quote_spanned! { Span::mixed_site() => take_tokens },
+        Mode::Parse => quote_mixed! { ref_tokens },
+        Mode::Extract => quote_mixed! { take_tokens },
     };
     let tokens_try = match mode {
         Mode::Parse => None,
-        Mode::Extract => Some(quote_spanned! { Span::mixed_site() => ? }),
+        Mode::Extract => Some(quote_mixed! { ? }),
     };
 
-    quote_spanned! { Span::mixed_site() =>
+    quote_mixed! {
         impl #impl_generics #trait_ for #ident #type_generics #where_clause {
             #[inline]
             fn path_matches(path: &#priv_::Path) -> #priv_::bool {
@@ -329,7 +336,8 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
                 #priv_::parse_helpers::parse_struct_attr_tokens(
                     #priv_::parse_helpers::#get_tokens::<Self, _>(obj) #tokens_try,
                     |inputs, spans| {
-                        let _mode = #crate_::ParseMode::Named(#priv_::parse_helpers::first_span(spans));
+                        let span = #priv_::parse_helpers::first_span(spans);
+                        let _mode = #crate_::ParseMode::Named(span);
                         #parse
                     }
                 )

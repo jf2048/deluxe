@@ -4,7 +4,7 @@ use crate::{Error, Errors, ParseMetaItem, ParseMode, Result};
 use proc_macro2::{Span, TokenStream, TokenTree};
 use std::{
     borrow::{Borrow, Cow},
-    collections::HashSet,
+    collections::HashMap,
 };
 pub use syn::{
     parse::Nothing,
@@ -96,8 +96,11 @@ pub fn parse_eof_or_trailing_comma(input: ParseStream) -> Result<()> {
     if input.peek(Token![,]) {
         input.parse::<Token![,]>()?;
     }
-    input.parse::<Nothing>()?;
-    Ok(())
+    if let Some((tree, _)) = input.cursor().token_tree() {
+        Err(syn::Error::new(tree.span(), format_args!("unexpected token `{}`", tree)))
+    } else {
+        Ok(())
+    }
 }
 
 /// Runs a parsing function from an empty token stream.
@@ -112,7 +115,7 @@ where
     syn::parse::Parser::parse2(func, TokenStream::new()).map_err(|e| {
         let mut iter = e.into_iter();
         let mut err = Error::new(span, iter.next().unwrap());
-        while let Some(e) = iter.next() {
+        for e in iter {
             err.combine(e);
         }
         err
@@ -145,7 +148,7 @@ where
         let input = input.borrow();
         let ret = func(input)?;
         parse_eof_or_trailing_comma(input)?;
-        while let Some(next) = iter.next() {
+        for next in iter {
             next.borrow().parse::<Nothing>()?;
         }
         Ok(ret)
@@ -468,7 +471,7 @@ pub fn join_prefix(prefix: &str, path: &str) -> String {
 
 /// Calls [`join_path`] on all paths in a slice.
 #[inline]
-pub fn join_paths(prefix: &str, paths: &[&'static str]) -> Vec<Cow<'static, str>> {
+pub fn join_paths<'s>(prefix: &str, paths: &[&'s str]) -> Vec<Cow<'s, str>> {
     paths.iter().map(|p| join_path(prefix, p)).collect()
 }
 
@@ -503,8 +506,46 @@ pub fn path_matches(path: &syn::Path, segs: &[&str]) -> bool {
 /// A key is a list of names that could be used for a field. Returns `true` if each key has at
 /// least one name present in `paths`.
 #[inline]
-pub fn has_paths(paths: &HashSet<&str>, keys: &[&[&str]]) -> bool {
-    keys.iter().all(|ks| ks.iter().any(|i| paths.contains(i)))
+pub fn has_paths(paths: &HashMap<String, Span>, keys: &[&[&str]]) -> bool {
+    keys.iter()
+        .all(|ks| ks.iter().any(|i| paths.contains_key(*i)))
+}
+
+/// Removes some paths from a path hashmap.
+///
+/// `keys` is an array of `(prefix, keys)` tuples. The prefix will be be prepended to the key and
+/// then the resulting string will be removed from `paths`.
+pub fn remove_paths(paths: &mut HashMap<String, Span>, keys: &[(&str, &[&str])]) {
+    for (prefix, ks) in keys {
+        for path in *ks {
+            let path = join_path(prefix, path);
+            paths.remove(path.as_ref());
+        }
+    }
+}
+
+/// Appends errors if any keys are found in a list of paths.
+///
+/// `keys` is an array of `(prefix, keys)` tuples. The prefix will be be prepended to the key and
+/// then checked against `paths`. For every key found, a "disallowed" error will be appended to
+/// `errors`.
+pub fn disallow_paths(
+    paths: &HashMap<String, Span>,
+    keys: &[(&str, &[&str])],
+    cur: &str,
+    errors: &Errors,
+) {
+    for (prefix, ks) in keys {
+        for path in *ks {
+            let path = join_path(prefix, path);
+            if let Some(span) = paths.get(path.as_ref()) {
+                errors.push(
+                    *span,
+                    format_args!("`{}` not allowed with variant `{}`", path, cur),
+                );
+            }
+        }
+    }
 }
 
 /// Creates a span encompassing a collection of [`ParseStream`](syn::parse::ParseStream)s.

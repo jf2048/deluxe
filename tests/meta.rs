@@ -281,3 +281,164 @@ fn parse_named_flat_long_prefixed() {
         missing required field `c`"
     );
 }
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+struct MyNamedComplex {
+    paths: ::std::vec::Vec<::syn::Ident>,
+    #[deluxe(skip)]
+    skipped: bool,
+    #[deluxe(default)]
+    int: i32,
+    #[deluxe(append)]
+    exprs: ::std::vec::Vec<::syn::Expr>,
+    #[deluxe(rest)]
+    rest: ::std::collections::HashMap<::syn::Path, ::syn::Expr>,
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+enum MyEmptyEnum {}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+struct MyFlatNamed {
+    j_a: i32,
+    j_b: ::std::string::String,
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+enum MyEnum {
+    A,
+    B(),
+    C(i32),
+    #[deluxe(transparent)]
+    D(bool),
+    E(::std::string::String, f64),
+    F {},
+    #[deluxe(transparent)]
+    G {
+        pass: ::syn::Path,
+    },
+    H {
+        s: ::std::string::String,
+        f: f64,
+    },
+    #[deluxe(flatten)]
+    FlatI {
+        i: ::std::string::String,
+    },
+    #[deluxe(flatten)]
+    FlatJ {
+        #[deluxe(flatten)]
+        named: MyFlatNamed,
+    },
+}
+
+#[test]
+fn parse_enum() {
+    use ::std::prelude::v1::*;
+    let parse = parse_meta::<MyEnum>;
+
+    ::std::assert_eq!(parse(q! { { a } }).unwrap(), MyEnum::A);
+    ::std::assert_eq!(parse(q! { { a() } }).unwrap(), MyEnum::A);
+    ::std::assert_eq!(
+        parse(q! { { a(x = 123) } }).unwrap_err().to_multi_string(),
+        "unexpected token `x`"
+    );
+    ::std::assert_eq!(parse(q! { { b() } }).unwrap(), MyEnum::B());
+    ::std::assert_eq!(parse(q! { { b = () } }).unwrap(), MyEnum::B());
+    ::std::assert_eq!(
+        parse(q! { { b(x = 123) } }).unwrap_err().to_multi_string(),
+        "unexpected token `x`"
+    );
+    ::std::assert_eq!(parse(q! { { c(123) } }).unwrap(), MyEnum::C(123));
+    ::std::assert_eq!(parse(q! { { d(true) } }).unwrap(), MyEnum::D(true));
+    ::std::assert_eq!(
+        parse(q! { { e("hello", 4.0) } }).unwrap(),
+        MyEnum::E("hello".into(), 4.0),
+    );
+    ::std::assert_eq!(parse(q! { { f } }).unwrap(), MyEnum::F {});
+    ::std::assert_eq!(parse(q! { { f() } }).unwrap(), MyEnum::F {});
+    ::std::assert_eq!(parse(q! { { f = {} } }).unwrap(), MyEnum::F {});
+    /*::std::assert_eq!(
+        parse(q! { { g(themod::theitem) } }).unwrap(),
+        MyEnum::G {
+            pass: ::syn::parse_quote! { themod::theitem }
+        }
+    );*/
+    ::std::assert_eq!(
+        parse(q! { { h(s = "qwerty", f = 1.0) } }).unwrap(),
+        MyEnum::H {
+            s: "qwerty".into(),
+            f: 1.0
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { j_a = 123, j_b = "asdf" } }).unwrap(),
+        MyEnum::FlatJ {
+            named: MyFlatNamed {
+                j_a: 123,
+                j_b: "asdf".into(),
+            }
+        },
+    );
+    ::std::assert_eq!(
+        parse(q! { { i = "asdf" } }).unwrap(),
+        MyEnum::FlatI { i: "asdf".into() }
+    );
+    /*
+    ::std::assert_eq!(
+        parse(q! { { x() } }).unwrap_err().to_multi_string(),
+        "unknown field `x`",
+    );
+    */
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+enum MySimpleEnum {
+    A,
+    B,
+    C,
+}
+
+#[test]
+fn parse_simple_enum() {
+    use ::std::prelude::v1::*;
+    let parse = parse_meta::<MySimpleEnum>;
+
+    ::std::assert_eq!(parse(q! { { a } }).unwrap(), MySimpleEnum::A);
+    ::std::assert_eq!(parse(q! { { b } }).unwrap(), MySimpleEnum::B);
+    ::std::assert_eq!(parse(q! { { c } }).unwrap(), MySimpleEnum::C);
+    ::std::assert_eq!(
+        parse(q! { { d } }).unwrap_err().to_multi_string(),
+        "unknown field `d`, expected one of `a`, `b`, `c`"
+    );
+}

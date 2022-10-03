@@ -148,6 +148,7 @@ pub trait ParseMetaFlatUnnamed: Sized {
     /// base when generating error messages.
     fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(
         inputs: &[S],
+        _mode: ParseMode,
         index: usize,
     ) -> Result<Self>;
 }
@@ -178,6 +179,7 @@ pub trait ParseMetaFlatNamed: Sized {
     /// fields not in [`Self::field_names`].
     fn parse_meta_flat_named<'s, S: Borrow<ParseBuffer<'s>>>(
         inputs: &[S],
+        _mode: ParseMode,
         prefix: &str,
         validate: bool,
     ) -> Result<Self>;
@@ -319,7 +321,7 @@ impl<T: ParseMetaItem, const N: usize> ParseMetaItem for [T; N] {
         inputs: &[S],
         _mode: ParseMode,
     ) -> Result<Self> {
-        Self::parse_meta_flat_unnamed(inputs, 0)
+        Self::parse_meta_flat_unnamed(inputs, _mode, 0)
     }
 }
 
@@ -330,6 +332,7 @@ impl<T: ParseMetaItem, const N: usize> ParseMetaFlatUnnamed for [T; N] {
     }
     fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(
         inputs: &[S],
+        _mode: ParseMode,
         index: usize,
     ) -> Result<Self> {
         let mut a = arrayvec::ArrayVec::<T, N>::new();
@@ -360,7 +363,7 @@ macro_rules! impl_parse_meta_item_collection {
             }
             #[inline]
             fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _mode: ParseMode) -> Result<Self> {
-                Self::parse_meta_flat_unnamed(inputs, 0)
+                Self::parse_meta_flat_unnamed(inputs, _mode, 0)
             }
         }
 
@@ -369,7 +372,11 @@ macro_rules! impl_parse_meta_item_collection {
             fn field_count() -> Option<usize> {
                 None
             }
-            fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _index: usize) -> Result<Self> {
+            fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(
+                inputs: &[S],
+                _mode: ParseMode,
+                _index: usize
+            ) -> Result<Self> {
                 let mut $ident = Self::new();
                 for input in inputs {
                     let input = input.borrow();
@@ -424,7 +431,7 @@ macro_rules! impl_parse_meta_item_set {
             }
             #[inline]
             fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _mode: ParseMode) -> Result<Self> {
-                Self::parse_meta_flat_unnamed(inputs, 0)
+                Self::parse_meta_flat_unnamed(inputs, _mode, 0)
             }
         }
 
@@ -433,7 +440,11 @@ macro_rules! impl_parse_meta_item_set {
             fn field_count() -> Option<usize> {
                 None
             }
-            fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _index: usize) -> Result<Self> {
+            fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(
+                inputs: &[S],
+                _mode: ParseMode,
+                _index: usize
+            ) -> Result<Self> {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
                 for input in inputs {
@@ -619,7 +630,7 @@ impl<T: ParseMetaItem, P: Parse + Default> ParseMetaItem for Punctuated<T, P> {
         inputs: &[S],
         _mode: ParseMode,
     ) -> Result<Self> {
-        Self::parse_meta_flat_unnamed(inputs, 0)
+        Self::parse_meta_flat_unnamed(inputs, _mode, 0)
     }
 }
 
@@ -630,6 +641,7 @@ impl<T: ParseMetaItem, P: Parse + Default> ParseMetaFlatUnnamed for Punctuated<T
     }
     fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(
         inputs: &[S],
+        _mode: ParseMode,
         _index: usize,
     ) -> Result<Self> {
         let mut p = Punctuated::new();
@@ -776,7 +788,7 @@ macro_rules! impl_parse_meta_item_tuple {
             }
             #[inline]
             fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _mode: ParseMode) -> Result<Self> {
-                Self::parse_meta_flat_unnamed(inputs, 0)
+                Self::parse_meta_flat_unnamed(inputs, _mode, 0)
             }
         }
 
@@ -785,7 +797,11 @@ macro_rules! impl_parse_meta_item_tuple {
             fn field_count() -> Option<usize> {
                 Some($len)
             }
-            fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _index: usize) -> Result<Self> {
+            fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(
+                inputs: &[S],
+                _mode: ParseMode,
+                _index: usize
+            ) -> Result<Self> {
                 $(let mut $item = None;)+
                 parse_tuple_struct(inputs, $len, |stream, _, index| {
                     match index {

@@ -7,9 +7,9 @@
 
 #[macro_use]
 mod util;
-mod field;
 mod parse_attributes;
 mod parse_meta_item;
+mod types;
 use util::*;
 
 use deluxe_core::Errors;

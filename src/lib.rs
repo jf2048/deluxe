@@ -114,15 +114,16 @@ pub mod ____private {
     pub use once_cell::sync::OnceCell as SyncOnceCell;
     pub use proc_macro2::Span;
     pub use std::{
-        borrow::{Borrow, Cow},
+        borrow::{Borrow, Cow, ToOwned},
         clone::Clone,
+        collections::HashMap,
         convert::AsRef,
         default::Default,
         format_args,
         iter::IntoIterator,
         option::Option,
         primitive::{bool, str, usize},
-        string::ToString,
+        string::{String, ToString},
         unreachable,
         vec::Vec,
     };
@@ -141,6 +142,36 @@ pub use deluxe_core::{
     with, Error, ExtractAttributes, HasAttributes, ParseAttributes, ParseMetaItem, Result,
 };
 pub use deluxe_macros::*;
+
+#[cfg(feature = "proc-macro")]
+extern crate proc_macro;
+
+/// Parses a Rust type out of a token stream.
+///
+/// This is a small wrapper around [`syn::parse::Parser::parse`].
+#[cfg(feature = "proc-macro")]
+#[inline]
+pub fn parse<T: ParseMetaItem>(attr: proc_macro::TokenStream) -> Result<T> {
+    syn::parse::Parser::parse(
+        |stream: syn::parse::ParseStream<'_>| {
+            T::parse_meta_item_inline(&[stream], ParseMode::Named(proc_macro2::Span::call_site()))
+        },
+        attr,
+    )
+}
+
+/// Parses a Rust type out of a token stream.
+///
+/// This is a small wrapper around [`syn::parse::Parser::parse2`].
+#[inline]
+pub fn parse2<T: ParseMetaItem>(attr: proc_macro2::TokenStream) -> Result<T> {
+    syn::parse::Parser::parse2(
+        |stream: syn::parse::ParseStream<'_>| {
+            T::parse_meta_item_inline(&[stream], ParseMode::Named(proc_macro2::Span::call_site()))
+        },
+        attr,
+    )
+}
 
 /// Parses a Rust type out of another type holding a list of [`syn::Attribute`].
 ///

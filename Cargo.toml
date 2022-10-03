@@ -3,6 +3,10 @@ name = "deluxe"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["proc-macro"]
+proc-macro = ["syn/proc-macro"]
+
 [dependencies]
 once_cell = "1.13.0"
 proc-macro2 = "1.0.38"

@@ -40,3 +40,15 @@ pub fn get_crate_path(path: Option<Option<syn::Path>>, errors: &Errors) -> Optio
         None => crate_path(None),
     }
 }
+
+macro_rules! quote_mixed {
+    ($($tt:tt)*) => {
+        quote::quote_spanned! { Span::mixed_site() => $($tt)* }
+    };
+}
+
+macro_rules! parse_quote_mixed {
+    ($($tt:tt)*) => {
+        syn::parse_quote_spanned! { Span::mixed_site() => $($tt)* }
+    };
+}
