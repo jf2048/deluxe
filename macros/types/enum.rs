@@ -278,7 +278,7 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                             let key = variant.field_key();
                             if variant_keys.contains(&key) {
                                 errors.push_spanned(
-                                &variant.variant,
+                                variant.variant,
                                 "additional flattened variants must have at least one unique non-flattened, non-default field",
                             );
                             } else {
@@ -286,7 +286,7 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                             }
                         } else {
                             errors.push_spanned(
-                                &variant.variant,
+                                variant.variant,
                                 "only enum variants with named fields can have `flatten`",
                             );
                         }

@@ -48,11 +48,15 @@ impl<'v> Variant<'v> {
         crate_: &syn::Path,
         priv_: &syn::Path,
         mode: TokenMode,
-        flat: bool,
+        flat: Option<FlatMode>,
     ) -> TokenStream {
         let allow_unknown_fields = self.allow_unknown_fields.unwrap_or(false);
         let field_data = FieldData {
-            mode: if flat { mode } else { TokenMode::ParseMetaItem },
+            mode: if flat.is_some() {
+                mode
+            } else {
+                TokenMode::ParseMetaItem
+            },
             target: ParseTarget::Init(Some(&self.variant.ident)),
             inline_expr: &parse_quote_mixed! { inline(&[input], _mode) },
             allowed_expr: &parse_quote_mixed! { allowed },
@@ -61,6 +65,33 @@ impl<'v> Variant<'v> {
         };
         let (pre, post) =
             Field::to_pre_post_tokens(&self.fields, &self.variant.fields, crate_, &field_data);
+        if field_data.transparent {
+            let name = self
+                .fields
+                .iter()
+                .enumerate()
+                .find_map(|(i, f)| {
+                    (f.is_parsable() && !f.is_flat())
+                        .then(|| quote::format_ident!("field{}", i, span = Span::mixed_site()))
+                })
+                .unwrap();
+            return quote_mixed! {
+                #pre
+                match #priv_::parse_helpers::parse_named_meta_item(input, span)
+                    .and_then(|v| {
+                        #name = #priv_::Option::Some(v);
+                        #post
+                    })
+                {
+                    #crate_::Result::Ok(v) => {
+                        value = #priv_::Option::Some(v);
+                    }
+                    #crate_::Result::Err(err) => {
+                        errors.push_syn(err);
+                    }
+                }
+            };
+        }
         let ItemDef {
             parse,
             inline,
@@ -92,10 +123,45 @@ impl<'v> Variant<'v> {
             }),
             _ => None,
         };
-        if flat {
+        if let Some(flat) = flat {
+            // unknown fields in an empty key really means the variant is unknown,
+            // so error out early and don't continue parsing
+            let validate_empty = match flat {
+                FlatMode::Empty { all_keys } if !allow_unknown_fields => Some(quote_mixed! {
+                    if validate {
+                        #priv_::parse_helpers::parse_struct(
+                            &#priv_::parse_helpers::fork_inputs(inputs),
+                            |input, p, span| {
+                                #priv_::parse_helpers::check_unknown_attribute(
+                                    p, span, allowed, &errors,
+                                );
+                                #priv_::parse_helpers::skip_named_meta_item(input);
+                                #crate_::Result::Ok(())
+                            },
+                        )?;
+                        if !errors.is_empty() {
+                            #priv_::parse_helpers::variant_required(
+                                span,
+                                prefix,
+                                &#all_keys,
+                                &errors
+                            );
+                            return #crate_::Result::Err(errors.check().unwrap_err());
+                        }
+                    }
+                }),
+                _ => None,
+            };
+            let unset_validate = validate_empty.as_ref().map(|_| {
+                quote_mixed! {
+                    let validate = false;
+                }
+            });
             quote_mixed! {
                 #pre
+                #validate_empty
                 let ret = (|| {
+                    #unset_validate
                     #inline
                 })();
                 match ret {
@@ -139,6 +205,31 @@ impl<'v> Variant<'v> {
             }
         }
     }
+    fn all_variant_key_messages(
+        variants: &[Self],
+        all_keys: &[Option<BTreeSet<BTreeSet<String>>>],
+    ) -> TokenStream {
+        let msgs = variants.iter().enumerate().map(|(i, v)| {
+            if v.flatten.unwrap_or(false) {
+                let keys = all_keys[i].as_ref().unwrap();
+                if keys.is_empty() {
+                    let ident = &v.variant.ident;
+                    let msg = format!("fields from `{ident}`");
+                    quote_mixed! { &[&[#msg]] }
+                } else {
+                    let key_exprs = keys.iter().map(|idents| {
+                        let idents = idents.iter().map(|i| format!("`{i}`"));
+                        quote_mixed! { &[#(#idents),*] }
+                    });
+                    quote_mixed! { &[#(#key_exprs),*] }
+                }
+            } else {
+                let ident = v.idents.first().map(|i| format!("`{i}`"));
+                quote_mixed! { &[&[#ident]] }
+            }
+        });
+        quote_mixed! { [#(#msgs,)*] }
+    }
     pub(super) fn to_parsing_tokens(
         variants: &[Self],
         crate_: &syn::Path,
@@ -153,7 +244,7 @@ impl<'v> Variant<'v> {
                 return None;
             }
             let idents = v.idents.iter().map(|i| i.to_string()).collect::<Vec<_>>();
-            let parse = v.to_field_parsing_tokens(crate_, priv_, mode, false);
+            let parse = v.to_field_parsing_tokens(crate_, priv_, mode, None);
             Some(quote_mixed! {
                 #(#priv_::Option::Some(k @ #idents))|* => {
                     if let #priv_::Option::Some(key) = key {
@@ -178,13 +269,18 @@ impl<'v> Variant<'v> {
         let any_flat = variants.iter().any(|v| v.flatten.unwrap_or(false));
         let paths_ident = any_flat.then(|| syn::Ident::new("paths", Span::mixed_site()));
         let paths_ident = paths_ident.as_ref().into_iter().collect::<Vec<_>>();
+        let all_flat_keys = variants
+            .iter()
+            .map(|v| v.flatten.unwrap_or(false).then(|| v.field_key()))
+            .collect::<Vec<_>>();
         let mut flat_matches = variants
             .iter()
-            .filter_map(|v| {
+            .enumerate()
+            .filter_map(|(i, v)| {
                 if !v.flatten.unwrap_or(false) {
                     return None;
                 }
-                let key = v.field_key();
+                let key = all_flat_keys[i].as_ref().unwrap();
                 let paths_key = key.iter().map(|idents| {
                     quote_mixed! { &[#(#idents),*] }
                 });
@@ -193,7 +289,13 @@ impl<'v> Variant<'v> {
                         if #priv_::parse_helpers::has_paths(&paths, &[#(#paths_key),*])
                     }
                 });
-                let parse = v.to_field_parsing_tokens(crate_, priv_, mode, true);
+                let flat_mode = if key.is_empty() {
+                    let all_keys = Self::all_variant_key_messages(variants, &all_flat_keys);
+                    FlatMode::Empty { all_keys }
+                } else {
+                    FlatMode::Tagged
+                };
+                let parse = v.to_field_parsing_tokens(crate_, priv_, mode, Some(flat_mode));
                 let disallow_paths = paths_ident.iter().filter_map(|paths_ident| {
                     if allow_unknown_fields || v.allow_unknown_fields.unwrap_or(false) {
                         return None;
@@ -264,25 +366,15 @@ impl<'v> Variant<'v> {
                     }
                 };
             }
-            let variant_keys = variants.iter().filter_map(|v| {
-                if v.flatten.unwrap_or(false) {
-                    return None;
-                }
-                v.idents.first().map(|i| i.to_string())
-            });
-            let flat_keys = flat_matches.keys().map(|key| {
-                let key_exprs = key.iter().map(|idents| {
-                    quote_mixed! { &[#(#idents),*] }
-                });
-                quote_mixed! { &[#(#key_exprs),*] }
-            });
+
+            let all_keys = Self::all_variant_key_messages(variants, &all_flat_keys);
             quote_mixed! {
                 {
                     #validate
                     #priv_::parse_helpers::variant_required(
                         span,
                         prefix,
-                        &[#(&[&[#variant_keys]],)* #(#flat_keys,)*],
+                        &#all_keys,
                         &errors
                     );
                 }
@@ -311,9 +403,9 @@ impl<'v> Variant<'v> {
         quote_mixed! {
             let mut key: #priv_::Option<&'static #priv_::str> = #priv_::Option::None;
             let mut value = #priv_::Option::None;
-            let errors = #crate_::Errors::new();
             #(let mut #paths_ident = #priv_::HashMap::<#priv_::String, #priv_::Span>::new();)*
             #priv_::parse_helpers::parse_struct(#inputs_expr, |input, p, span| {
+                let errors = #crate_::Errors::new();
                 let inputs = [input];
                 let inputs = inputs.as_slice();
                 let cur = p.strip_prefix(prefix);
@@ -326,9 +418,9 @@ impl<'v> Variant<'v> {
                         #priv_::parse_helpers::skip_named_meta_item(input);
                     }
                 }
+                errors.check()?;
                 #crate_::Result::Ok(())
             })?;
-            errors.check()?;
             let errors = #crate_::Errors::new();
             if value.is_some() {
                 #(#disallow_flats)*
@@ -525,4 +617,9 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
             },
         )
     }
+}
+
+pub enum FlatMode {
+    Tagged,
+    Empty { all_keys: TokenStream },
 }

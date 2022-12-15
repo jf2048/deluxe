@@ -97,7 +97,10 @@ pub fn parse_eof_or_trailing_comma(input: ParseStream) -> Result<()> {
         input.parse::<Token![,]>()?;
     }
     if let Some((tree, _)) = input.cursor().token_tree() {
-        Err(syn::Error::new(tree.span(), format_args!("unexpected token `{}`", tree)))
+        Err(syn::Error::new(
+            tree.span(),
+            format_args!("unexpected token `{}`", tree),
+        ))
     } else {
         Ok(())
     }
@@ -707,7 +710,7 @@ pub fn variant_required(span: Span, prefix: &str, variants: &[&[&[&str]]], error
                     let mut iter = keys.iter().map(|idents| {
                         idents
                             .iter()
-                            .map(|i| format!("`{}`", join_path(prefix, i)))
+                            .map(|i| join_path(prefix, i).into_owned())
                             .collect::<Vec<_>>()
                             .join("|")
                     });

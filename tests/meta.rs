@@ -20,7 +20,7 @@ fn parse_unit() {
     ::std::assert_eq!(parse(q! { () }).unwrap(), MyUnit);
     ::std::assert_eq!(
         parse(q! { (1) }).unwrap_err().to_multi_string(),
-        "unexpected token"
+        "unexpected token `1`"
     );
 }
 
@@ -39,7 +39,7 @@ fn parse_unnamed_empty() {
     ::std::assert_eq!(parse(q! { () }).unwrap(), MyUnnamedEmpty());
     ::std::assert_eq!(
         parse(q! { (1) }).unwrap_err().to_multi_string(),
-        "unexpected token"
+        "unexpected token `1`"
     );
 }
 
@@ -91,7 +91,7 @@ fn parse_unnamed() {
         parse(q! { (123, "abc", true) })
             .unwrap_err()
             .to_multi_string(),
-        "unexpected token"
+        "unexpected token `true`"
     );
 }
 
@@ -361,6 +361,10 @@ fn parse_enum() {
     use ::std::prelude::v1::*;
     let parse = parse_meta::<MyEnum>;
 
+    ::std::assert_eq!(
+        parse(q! { ( a ) }).unwrap_err().to_multi_string(),
+        "expected curly braces"
+    );
     ::std::assert_eq!(parse(q! { { a } }).unwrap(), MyEnum::A);
     ::std::assert_eq!(parse(q! { { a() } }).unwrap(), MyEnum::A);
     ::std::assert_eq!(
@@ -374,7 +378,17 @@ fn parse_enum() {
         "unexpected token `x`"
     );
     ::std::assert_eq!(parse(q! { { c(123) } }).unwrap(), MyEnum::C(123));
+    ::std::assert_eq!(
+        parse(q! { { c } }).unwrap_err().to_multi_string(),
+        "unexpected flag, expected `=` or parentheses"
+    );
+    ::std::assert_eq!(
+        parse(q! { { c = 123 } }).unwrap_err().to_multi_string(),
+        "expected parentheses"
+    );
     ::std::assert_eq!(parse(q! { { d(true) } }).unwrap(), MyEnum::D(true));
+    ::std::assert_eq!(parse(q! { { d = true } }).unwrap(), MyEnum::D(true));
+    ::std::assert_eq!(parse(q! { { d } }).unwrap(), MyEnum::D(true));
     ::std::assert_eq!(
         parse(q! { { e("hello", 4.0) } }).unwrap(),
         MyEnum::E("hello".into(), 4.0),
@@ -382,12 +396,18 @@ fn parse_enum() {
     ::std::assert_eq!(parse(q! { { f } }).unwrap(), MyEnum::F {});
     ::std::assert_eq!(parse(q! { { f() } }).unwrap(), MyEnum::F {});
     ::std::assert_eq!(parse(q! { { f = {} } }).unwrap(), MyEnum::F {});
-    /*::std::assert_eq!(
+    ::std::assert_eq!(
         parse(q! { { g(themod::theitem) } }).unwrap(),
         MyEnum::G {
             pass: ::syn::parse_quote! { themod::theitem }
         }
-    );*/
+    );
+    ::std::assert_eq!(
+        parse(q! { { g = themod::theitem } }).unwrap(),
+        MyEnum::G {
+            pass: ::syn::parse_quote! { themod::theitem }
+        }
+    );
     ::std::assert_eq!(
         parse(q! { { h(s = "qwerty", f = 1.0) } }).unwrap(),
         MyEnum::H {
@@ -408,12 +428,10 @@ fn parse_enum() {
         parse(q! { { i = "asdf" } }).unwrap(),
         MyEnum::FlatI { i: "asdf".into() }
     );
-    /*
     ::std::assert_eq!(
         parse(q! { { x() } }).unwrap_err().to_multi_string(),
-        "unknown field `x`",
+        "unknown field `x`, expected one of `a`, `b`, `c`, `d`, `e`, `f`, `g`, `h`, `i`, fields from `FlatJ`",
     );
-    */
 }
 
 #[derive(

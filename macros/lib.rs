@@ -81,7 +81,7 @@ pub fn derive_extract_attributes(item: TokenStream) -> TokenStream {
 ///   If used within an enum, only the first container field will supply the trait bounds. Any
 ///   other container fields in other variants must have a compatible type and lifetime.
 ///
-///   Fields with this attribute can safely be added to a struct using
+///   Fields with this attribute can safely be added to a struct or variant using
 ///   [`#[deluxe(transparent)]`](ParseMetaItem#deluxetransparent). Container fields do not count as
 ///   a parseable field, as they are never parsed from tokens.
 ///
@@ -171,6 +171,12 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///
 ///   Parse the variant with the given `ident`, or its Rust name. Can be repeated multiple times to
 ///   provide additional aliases.
+///
+/// - ##### `#[deluxe(transparent)]`
+///
+///   Parses a variant with one field as if it were the field. Can only be used on a variant with a
+///   single parseable field. Analogous to `#[repr(transparent)]`. The variant can still contain
+///   fields that are [`skip`](#deluxeskip), as those will be ignored by `transparent`.
 ///
 /// - ##### `#[deluxe(flatten)]`
 ///
