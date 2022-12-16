@@ -217,6 +217,8 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
     let mut container_ty = container_ty.map(Cow::Owned);
     if let Some(container_field) = container_field {
         let mut ty = &container_field.ty;
+        // try to guess some things about the container type.
+        // first infer if this is an option, and if so, use its inner type
         if_chain::if_chain! {
             if let syn::Type::Path(path) = ty;
             if path.qself.is_none();
@@ -229,6 +231,7 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
                 ty = t;
             }
         }
+        // use inner type and lifetime from reference
         if let syn::Type::Reference(ref_) = ty {
             if container_lifetime.is_none() {
                 container_lifetime = ref_.lifetime.clone();
@@ -236,6 +239,18 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
             container_is_ref = true;
             ty = &*ref_.elem;
         }
+        // if we still need a lifetime, and inner type has a lifetime, use that
+        if_chain::if_chain! {
+            if container_lifetime.is_none();
+            if let syn::Type::Path(path) = ty;
+            if let Some(last) = path.path.segments.last();
+            if let syn::PathArguments::AngleBracketed(args) = &last.arguments;
+            if let Some(syn::GenericArgument::Lifetime(lt)) = args.args.first();
+            then {
+                container_lifetime = Some(lt.clone());
+            }
+        }
+        // see if the type matches a generic param
         if container_ty.is_none() {
             container_ty = Some(Cow::Borrowed(ty));
             if_chain::if_chain! {
@@ -249,9 +264,11 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
             }
         }
     }
+    // if there was no container field, make it generic and add our own type param
     let container_ty = container_ty.unwrap_or_else(|| {
         container_is_generic = true;
         let mut ty = String::from("T");
+        // ensure the `T` is a unique ident
         while generics.type_params().any(|p| p.ident == ty) {
             ty.push('_');
         }
@@ -260,6 +277,7 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
         Cow::Owned(parse_quote_mixed! { #ty })
     });
 
+    // value types must be copied into the structure
     if !container_is_ref {
         let where_clause = generics.make_where_clause();
         where_clause.predicates.push(syn::parse_quote! {
@@ -267,6 +285,7 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
         });
     }
 
+    // must be able to access attributes on the generic type
     if container_is_generic {
         let where_clause = generics.make_where_clause();
         where_clause.predicates.push(syn::parse_quote! {
@@ -274,6 +293,7 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
         });
     }
 
+    // ParseAttributes needs a lifetime param since the attributes are always referenced
     if mode == Mode::Parse && container_lifetime.is_none() {
         let mut lt = String::from("t");
         while generics.lifetimes().any(|l| l.lifetime.ident == lt) {

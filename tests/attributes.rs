@@ -164,3 +164,72 @@ fn ref_generic_option_container() {
     ::std::assert_eq!(cont.container, ::std::option::Option::Some(&expr));
     ::std::assert_eq!(cont.int, 9);
 }
+
+#[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, PartialEq, Debug)]
+#[deluxe(attributes(container::an_enum))]
+enum ContainerEnum {
+    A(#[deluxe(container)] ::syn::Expr, #[deluxe(skip)] i32, i32),
+    B {
+        #[deluxe(container)]
+        container: ::syn::Expr,
+        #[deluxe(skip)]
+        skipped: i32,
+        value: i32,
+    },
+    #[deluxe(flatten)]
+    C {
+        #[deluxe(container)]
+        container: ::syn::Expr,
+        #[deluxe(skip)]
+        skipped: i32,
+        c: i32,
+    },
+    #[deluxe(flatten)]
+    D {
+        #[deluxe(container)]
+        container: ::syn::Expr,
+        #[deluxe(skip)]
+        skipped: i32,
+    },
+}
+
+#[test]
+fn container_enum() {
+    let expr: ::syn::Expr = ::syn::parse2(q! {
+        #[container::an_enum(a(500))]
+        true
+    })
+    .unwrap();
+    let cont: ContainerEnum = ::deluxe::parse_attributes(&expr).unwrap();
+    ::std::assert!(::std::matches!(cont, ContainerEnum::A(e, 0, 500) if e == expr));
+
+    let expr: ::syn::Expr = ::syn::parse2(q! {
+        #[container::an_enum(b(value = 501))]
+        true
+    })
+    .unwrap();
+    let cont: ContainerEnum = ::deluxe::parse_attributes(&expr).unwrap();
+    ::std::assert!(
+        ::std::matches!(cont, ContainerEnum::B { container: e, skipped: 0, value: 501 } if e == expr)
+    );
+
+    let expr: ::syn::Expr = ::syn::parse2(q! {
+        #[container::an_enum(c = 502)]
+        true
+    })
+    .unwrap();
+    let cont: ContainerEnum = ::deluxe::parse_attributes(&expr).unwrap();
+    ::std::assert!(
+        ::std::matches!(cont, ContainerEnum::C { container: e, skipped: 0, c: 502 } if e == expr)
+    );
+
+    let expr: ::syn::Expr = ::syn::parse2(q! {
+        #[container::an_enum()]
+        true
+    })
+    .unwrap();
+    let cont: ContainerEnum = ::deluxe::parse_attributes(&expr).unwrap();
+    ::std::assert!(
+        ::std::matches!(cont, ContainerEnum::D { container: e, skipped: 0 } if e == expr)
+    );
+}

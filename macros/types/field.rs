@@ -693,13 +693,14 @@ impl<'f> Field<'f> {
                     let idents = f.idents.iter().map(|i| i.to_string());
                     let call = match f.with.as_ref() {
                         Some(m) => {
+                            let value_ident = syn::Ident::new("value", Span::mixed_site());
                             let input_ident = syn::Ident::new("input", Span::mixed_site());
                             let span_ident = syn::Ident::new("span", Span::mixed_site());
                             // bind the return to a variable to span a type conversion error properly
                             quote_spanned! { m.span() =>
                                 {
-                                    let ____value = #crate_::parse_named_meta_item_with!(#input_ident, #span_ident, #m)?;
-                                    ____value
+                                    let #value_ident = #crate_::parse_named_meta_item_with!(#input_ident, #span_ident, #m)?;
+                                    #value_ident
                                 }
                             }
                         }
@@ -769,11 +770,10 @@ impl<'f> Field<'f> {
                 )
             }
             syn::Fields::Unnamed(_) => {
-                let field_matches = fields.iter().enumerate().filter_map(|(index, f)| {
-                    if !f.is_parsable() || f.append.map(|v| *v).unwrap_or(false) || f.rest.map(|v| *v).unwrap_or(false) {
-                        return None;
-                    }
-                    let name = &names[index];
+                let field_matches = fields.iter().enumerate().filter(|(_, f)| {
+                    f.is_parsable() && !f.append.map(|v| *v).unwrap_or(false) && !f.rest.map(|v| *v).unwrap_or(false)
+                }).enumerate().map(|(index, (real_index, f))| {
+                    let name = &names[real_index];
                     let ty = &f.field.ty;
                     let call = match (f.is_flat(), f.with.as_ref()) {
                         (true, Some(m)) => quote_mixed! {
@@ -807,12 +807,12 @@ impl<'f> Field<'f> {
                             }
                         }
                     });
-                    Some(quote_mixed! {
+                    quote_mixed! {
                         #index => {
                             #name = #priv_::Option::Some(#call?);
                             #increment
                         }
-                    })
+                    }
                 });
                 let parse_fields = pub_fields.clone().next().is_some().then(|| {
                     let field_count = pub_fields.clone().filter(|f| !f.is_flat()).count();

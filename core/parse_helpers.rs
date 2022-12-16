@@ -189,6 +189,31 @@ pub fn parse_named_meta_item<T: ParseMetaItem>(input: ParseStream, name_span: Sp
     }
 }
 
+/// FIXME
+#[derive(Debug)]
+pub enum NamedParse<'p> {
+    /// FIXME
+    Equals,
+    /// FIXME
+    Paren(ParseBuffer<'p>),
+    /// FIXME
+    Flag,
+}
+
+/// FIXME
+#[inline]
+pub fn try_parse_named_meta_item(input: ParseStream) -> Result<NamedParse> {
+    if input.peek(Token![=]) {
+        input.parse::<Token![=]>()?;
+        Ok(NamedParse::Equals)
+    } else if input.peek(Paren) {
+        let content = Paren::parse_delimited(input)?;
+        Ok(NamedParse::Paren(content))
+    } else {
+        Ok(NamedParse::Flag)
+    }
+}
+
 /// Parses a [`ParseMetaItem`](crate::ParseMetaItem) following a name, using custom parse
 /// functions.
 ///

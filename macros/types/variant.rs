@@ -51,12 +51,8 @@ impl<'v> Variant<'v> {
         flat: Option<FlatMode>,
     ) -> TokenStream {
         let allow_unknown_fields = self.allow_unknown_fields.unwrap_or(false);
-        let field_data = FieldData {
-            mode: if flat.is_some() {
-                mode
-            } else {
-                TokenMode::ParseMetaItem
-            },
+        let mut field_data = FieldData {
+            mode,
             target: ParseTarget::Init(Some(&self.variant.ident)),
             inline_expr: &parse_quote_mixed! { inline(&[input], _mode) },
             allowed_expr: &parse_quote_mixed! { allowed },
@@ -91,6 +87,9 @@ impl<'v> Variant<'v> {
                     }
                 }
             };
+        }
+        if flat.is_none() {
+            field_data.mode = TokenMode::ParseMetaItem;
         }
         let ItemDef {
             parse,
@@ -179,22 +178,30 @@ impl<'v> Variant<'v> {
                     #crate_::Result::Err(#priv_::parse_helpers::flag_disallowed_error(span))
                 }
             });
+            let inline_mut = (mode == TokenMode::ExtractAttributes).then(|| quote_mixed! { mut });
             quote_mixed! {
                 #pre
-                let inline = |inputs: &[#priv_::ParseStream<'_>], _mode: #crate_::ParseMode| {
+                let #inline_mut inline = |inputs: &[#priv_::ParseStream<'_>], _mode: #crate_::ParseMode| {
                     #inline
                 };
-                match #priv_::parse_helpers::parse_named_meta_item_with(
-                    input,
-                    span,
-                    |input, _mode| {
+                let res = match #priv_::parse_helpers::try_parse_named_meta_item(input) {
+                    #crate_::Result::Ok(#priv_::parse_helpers::NamedParse::Equals) => {
+                        let _mode = #crate_::ParseMode::Named(span);
                         #parse
                     },
-                    inline,
-                    |span| {
+                    #crate_::Result::Ok(#priv_::parse_helpers::NamedParse::Paren(buffer)) => {
+                        inline(&[&buffer], #crate_::ParseMode::Named(span))
+                            .and_then(|v| {
+                                #priv_::parse_helpers::parse_eof_or_trailing_comma(&buffer)?;
+                                #crate_::Result::Ok(v)
+                        })
+                    },
+                    #crate_::Result::Ok(#priv_::parse_helpers::NamedParse::Flag) => {
                         #flag
                     },
-                ) {
+                    #crate_::Result::Err(e) => #crate_::Result::Err(e),
+                };
+                match res {
                     #crate_::Result::Ok(v) => {
                         value = #priv_::Option::Some(v);
                     }
