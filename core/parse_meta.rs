@@ -227,15 +227,21 @@ macro_rules! impl_parse_meta_item_primitive {
         impl ParseMetaItem for $ty {
             #[inline]
             fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-                impl_parse_meta_item_primitive!(@conv input, $lit, $conv)
+                impl_parse_meta_item_primitive!(@conv input, _mode, $lit, $conv)
             }
         }
     };
-    (@conv $input:ident, $lit:ty, base10_parse) => {
+    (@conv $input:ident, $mode:ident, $lit:ty, base10_parse) => {
         $input.parse::<$lit>()?.base10_parse()
     };
-    (@conv $input:ident, $lit:ty, value) => {
+    (@conv $input:ident, $mode:ident, $lit:ty, value) => {
         Ok($input.parse::<$lit>()?.value())
+    };
+    (@conv $input:ident, $mode:ident, $lit:ty, from_value) => {
+        Ok(Self::from($input.parse::<$lit>()?.value()))
+    };
+    (@conv $input:ident, $mode:ident, $lit:ty, from_str) => {
+        $crate::with::from_str::parse_meta_item($input, $mode)
     };
 }
 
@@ -280,8 +286,31 @@ impl ParseMetaItem for bool {
     }
 }
 
+impl_parse_meta_item_primitive!(std::num::NonZeroI8, syn::LitInt, base10_parse);
+impl_parse_meta_item_primitive!(std::num::NonZeroI16, syn::LitInt, base10_parse);
+impl_parse_meta_item_primitive!(std::num::NonZeroI32, syn::LitInt, base10_parse);
+impl_parse_meta_item_primitive!(std::num::NonZeroI64, syn::LitInt, base10_parse);
+impl_parse_meta_item_primitive!(std::num::NonZeroI128, syn::LitInt, base10_parse);
+impl_parse_meta_item_primitive!(std::num::NonZeroIsize, syn::LitInt, base10_parse);
+
+impl_parse_meta_item_primitive!(std::num::NonZeroU8, syn::LitInt, base10_parse);
+impl_parse_meta_item_primitive!(std::num::NonZeroU16, syn::LitInt, base10_parse);
+impl_parse_meta_item_primitive!(std::num::NonZeroU32, syn::LitInt, base10_parse);
+impl_parse_meta_item_primitive!(std::num::NonZeroU64, syn::LitInt, base10_parse);
+impl_parse_meta_item_primitive!(std::num::NonZeroU128, syn::LitInt, base10_parse);
+impl_parse_meta_item_primitive!(std::num::NonZeroUsize, syn::LitInt, base10_parse);
+
 impl_parse_meta_item_primitive!(String, syn::LitStr, value);
 impl_parse_meta_item_primitive!(char, syn::LitChar, value);
+impl_parse_meta_item_primitive!(std::path::PathBuf, syn::LitStr, from_value);
+impl_parse_meta_item_primitive!(std::ffi::OsString, syn::LitStr, from_value);
+
+impl_parse_meta_item_primitive!(std::net::IpAddr, syn::LitStr, from_str);
+impl_parse_meta_item_primitive!(std::net::Ipv4Addr, syn::LitStr, from_str);
+impl_parse_meta_item_primitive!(std::net::Ipv6Addr, syn::LitStr, from_str);
+impl_parse_meta_item_primitive!(std::net::SocketAddr, syn::LitStr, from_str);
+impl_parse_meta_item_primitive!(std::net::SocketAddrV4, syn::LitStr, from_str);
+impl_parse_meta_item_primitive!(std::net::SocketAddrV6, syn::LitStr, from_str);
 
 impl<T: ParseMetaItem> ParseMetaItem for Option<T> {
     #[inline]
@@ -618,6 +647,102 @@ impl<'t, T: ParseMetaItem + Clone> ParseMetaItem for std::borrow::Cow<'t, T> {
     #[inline]
     fn parse_meta_item_flag(span: Span) -> Result<Self> {
         T::parse_meta_item_flag(span).map(Self::Owned)
+    }
+}
+
+impl ParseMetaItem for proc_macro2::TokenTree {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        input.step(|cursor| {
+            cursor
+                .token_tree()
+                .ok_or_else(|| crate::Error::new(cursor.span(), "unexpected end of tokens"))
+        })
+    }
+}
+
+/// Consumes all remaining tokens.
+impl ParseMetaItem for proc_macro2::TokenStream {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        input.step(|cursor| {
+            let mut cursor = *cursor;
+            let mut tts = Vec::new();
+            while let Some((tt, rest)) = cursor.token_tree() {
+                tts.push(tt);
+                cursor = rest;
+            }
+            Ok((tts.into_iter().collect(), cursor))
+        })
+    }
+    #[inline]
+    fn parse_meta_item_flag(_: Span) -> Result<Self> {
+        Ok(Default::default())
+    }
+}
+
+impl ParseMetaFlatUnnamed for proc_macro2::TokenStream {
+    #[inline]
+    fn field_count() -> Option<usize> {
+        None
+    }
+    fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        _mode: ParseMode,
+        _index: usize,
+    ) -> Result<Self> {
+        let mut tts = Self::new();
+        for input in inputs {
+            let input = input.borrow();
+            loop {
+                if input.is_empty() {
+                    break;
+                }
+                tts.extend(Self::parse_meta_item(input, ParseMode::Unnamed)?);
+            }
+        }
+        Ok(tts)
+    }
+}
+
+impl ParseMetaItem for proc_macro2::Literal {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        input.step(|cursor| {
+            cursor
+                .literal()
+                .ok_or_else(|| crate::Error::new(cursor.span(), "expected literal"))
+        })
+    }
+}
+
+impl ParseMetaItem for proc_macro2::Punct {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        input.step(|cursor| {
+            cursor
+                .punct()
+                .ok_or_else(|| crate::Error::new(cursor.span(), "expected punctuation"))
+        })
+    }
+}
+
+impl ParseMetaItem for proc_macro2::Group {
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        input.step(|cursor| {
+            for delim in {
+                use proc_macro2::Delimiter::*;
+                [Parenthesis, Brace, Bracket, None]
+            } {
+                if let Some((group, _, cursor)) = cursor.group(delim) {
+                    return Ok((proc_macro2::Group::new(delim, group.token_stream()), cursor));
+                }
+            }
+            Err(crate::Error::new(
+                cursor.span(),
+                "expected parenthesis or brace or bracket",
+            ))
+        })
     }
 }
 
