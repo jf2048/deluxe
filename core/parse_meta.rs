@@ -35,7 +35,7 @@ impl ParseMode {
     }
     /// Gets the stored [`Span`](proc_macro2::Span).
     ///
-    /// If `self` is [`Unnamed`](Self::Unnamed), returns `None`.
+    /// If `self` is [`Unnamed`](Self::Unnamed), returns [`None`].
     #[inline]
     pub fn named_span(&self) -> Option<Span> {
         match self {
@@ -53,7 +53,7 @@ impl ParseMode {
     }
     /// Gets the stored [`Span`](proc_macro2::Span).
     ///
-    /// If `self` is [`Unnamed`](Self::Unnamed), returns <code>[inputs_span](inputs)</code>.
+    /// If `self` is [`Unnamed`](Self::Unnamed), returns <code>[inputs_span]\(inputs)</code>.
     #[inline]
     pub fn to_full_span<'s, S: Borrow<ParseBuffer<'s>>>(&self, inputs: &[S]) -> Span {
         self.named_span().unwrap_or_else(|| inputs_span(inputs))
@@ -78,11 +78,12 @@ pub trait ParseMetaItem: Sized {
     /// the item.
     ///
     /// The `_mode` argument describes whether this item is being parsed in a named or an unnamed
-    /// context. This argument will rarely be used. It only should be checked when an item
-    /// uses [`Self::parse_meta_item_flag`] to provide shorthand for a default enum value, and
-    /// wants to avoid parsing it in a named context. In an unnamed context, both values will
-    /// still need to be parsed. See the implementation of this trait on `Option<T>` for an
-    /// example of when to check `_mode`.
+    /// context. This argument will rarely be used. It only should be checked when an item uses
+    /// [`Self::parse_meta_item_flag`] to provide shorthand for a default enum value, and wants to
+    /// avoid parsing it in a named context. In an unnamed context, both values will still need to
+    /// be parsed. See the source to the
+    /// [implementation](ParseMetaItem#impl-ParseMetaItem-for-Option<T>) of this trait on
+    /// <code>[Option]&lt;T></code> for an example of when to check `_mode`.
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self>;
     /// Parse the item in an inline context.
     ///
@@ -126,7 +127,7 @@ pub trait ParseMetaItem: Sized {
 pub trait ParseMetaFlatUnnamed: Sized {
     /// Returns the number of fields in this structure.
     ///
-    /// Returns `None` if it can parse any number of fields.
+    /// Returns [`None`] if it can parse any number of fields.
     ///
     /// Currently, this is only useful when generating error messages.
     fn field_count() -> Option<usize>;

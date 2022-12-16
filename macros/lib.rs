@@ -74,8 +74,8 @@ pub fn derive_extract_attributes(item: TokenStream) -> TokenStream {
 ///   If the struct/enum also derives [`ParseMetaItem`], then
 ///   [`#[deluxe(default)]`](ParseMetaItem#deluxedefault-1) is implied on any container fields. In
 ///   that case, a common pattern is to use an [`Option`] as the container field. It will be set to
-///   `None` when calling [`parse_meta_item`](deluxe_core::ParseMetaItem::parse_meta_item), but
-///   will be `Some` when calling
+///   [`None`] when calling [`parse_meta_item`](deluxe_core::ParseMetaItem::parse_meta_item), but
+///   will be [`Some`] when calling
 ///   [`parse_attributes`](deluxe_core::ParseAttributes::parse_attributes).
 ///
 ///   If used within an enum, only the first container field will supply the trait bounds. Any

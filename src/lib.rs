@@ -1,14 +1,16 @@
 //! # Deluxe
 //!
-//! A superb procedural macro attribute parser.
+//! A procedural macro attribute parser.
 //!
 //! ### Abstract
 //!
-//! Procedural macros that use custom attributes will often parse the attribute into [`syn::Meta`],
-//! and then collect parameters by traversing the nested lists. But meta items retrieved that way
-//! can only contain literal values. This can be a nuisance if a parameter contains [`syn`] types
-//! or otherwise wants to use custom syntax. In comparison, Deluxe works by supplying derive macros that
-//! can generate parsers for raw token streams.
+//! This crate offers attribute parsing closer to the design of attributes in C#. It has an
+//! interface similar to [serde](https://serde.rs). Attributes are written as plain Rust structs or
+//! enums, and then parsers for them are generated automatically. They can contain arbitrary
+//! expressions and can inherit from other attributes using a "flatten" mechanism.
+//!
+//! The parsers in this crate directly parse token streams using [`syn`]. As a result, most [`syn`]
+//! types can be used directly as fields.
 //!
 //! ### Usage
 //!
@@ -103,7 +105,7 @@
 //!
 //! ### Related Crates
 //!
-//! Deluxe is inspired by the [darling](https://docs.rs/darling) and [serde](https://docs.rs/serde)
+//! Deluxe is inspired by the [darling](https://docs.rs/darling) and [serde](https://serde.rs)
 //! crates.
 
 #![deny(missing_docs)]

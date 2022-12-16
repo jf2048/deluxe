@@ -54,10 +54,10 @@ pub mod mod_path {
     }
 }
 
-/// Helpers for parsing a `Vec` of module paths using [`syn::Path::parse_mod_style`].
+/// Helpers for parsing a [`Vec`] of module paths using [`syn::Path::parse_mod_style`].
 ///
-/// The field should be a `Vec<syn::Path>`. Can be used on a field by specifying the module, like
-/// `#[deluxe(with = "deluxe::with::mod_path_vec")]`
+/// The field should be a <code>[Vec]&lt;[syn::Path]></code>. Can be used on a field by specifying
+/// the module, like `#[deluxe(with = "deluxe::with::mod_path_vec")]`
 pub mod mod_path_vec {
     #![allow(missing_docs)]
     use crate::{ParseMode, Result};

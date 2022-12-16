@@ -6,9 +6,9 @@ use crate::Errors;
 
 /// Appends an error if more than one given attribute is present.
 ///
-/// `attrs` should provide an iterator of tuples containing the field name, and an `Option`
-/// possibly containing the field value. If two or more are `Some`, an error will be appended to
-/// `Errors`, with `prefix` prepended onto the names.
+/// `attrs` should provide an iterator of tuples containing the field name, and an [`Option`]
+/// possibly containing the field value. If two or more are [`Some`], an error will be appended to
+/// `errors`, with `prefix` prepended onto the names.
 pub fn only_one<'t, I>(attrs: I, prefix: &str, errors: &Errors)
 where
     I: IntoIterator<Item = &'t (&'static str, Option<&'t dyn Spanned>)>,

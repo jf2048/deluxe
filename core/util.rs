@@ -83,8 +83,8 @@ impl Errors {
     }
     /// Checks if the error list is empty.
     ///
-    /// If the list has any errors, returns `Err` containing one `Error` with all of the errors
-    /// combined using [`Error::combine`](syn::Error::combine). Otherwise, returns `Ok`.
+    /// If the list has any errors, returns [`Err`] containing one [`Error`] with all of the errors
+    /// combined using [`Error::combine`](syn::Error::combine). Otherwise, returns [`Ok`].
     #[inline]
     pub fn check(self) -> Result<()> {
         if let Some(err) = self.errors.take() {

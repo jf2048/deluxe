@@ -32,13 +32,14 @@ pub trait ExtractAttributes<T: HasAttributes>: Sized {
 
 /// Trait for a [`syn`] type containing a list of attributes.
 ///
-/// Implementations are provided for all [`syn`] types containing a `Vec<syn::Attribute>`.
+/// Implementations are provided for all [`syn`] types containing a
+/// <code>[Vec]&lt;[syn::Attribute]></code>.
 pub trait HasAttributes {
     /// Returns an immutable slice of attributes.
     fn attrs(&self) -> &[syn::Attribute];
-    /// Returns a mutable `Vec` of attributes.
+    /// Returns a mutable [`Vec`] of attributes.
     ///
-    /// Returns `Err` if the type does not support mutable attributes.
+    /// Returns [`Err`] if the type does not support mutable attributes.
     fn attrs_mut(&mut self) -> Result<&mut Vec<syn::Attribute>>;
 }
 
@@ -493,7 +494,7 @@ impl_has_attributes!(syn::Variant);
 /// Converts a [`HasAttributes`] type to a stored container value.
 ///
 /// This trait is only called by the `#[deluxe(container)`] attribute on fields to properly handle
-/// conversions to corresponding owned and `Option` types.
+/// conversions to corresponding owned and [`Option`] types.
 pub trait ToContainer<'t, T> {
     /// Converts a reference to a stored container `T`.
     fn to_container(&'t self) -> T;

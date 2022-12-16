@@ -189,18 +189,23 @@ pub fn parse_named_meta_item<T: ParseMetaItem>(input: ParseStream, name_span: Sp
     }
 }
 
-/// FIXME
+/// The type of a named meta field.
+///
+/// See [`try_parse_named_meta_item`].
 #[derive(Debug)]
 pub enum NamedParse<'p> {
-    /// FIXME
+    /// The field was specified with an equals, .e.g `my_arg = 123`.
     Equals,
-    /// FIXME
+    /// The field was specified with surrounding parenthesis, .e.g `my_arg(123)`.
     Paren(ParseBuffer<'p>),
-    /// FIXME
+    /// The field was specified as a flag without a value, .e.g `my_arg`.
     Flag,
 }
 
-/// FIXME
+/// Attempts to begin parsing a meta item following a name, returning a value describing what type
+/// of named meta item this is.
+///
+/// Can be used as an alternative to [`parse_named_meta_item_with`] for custom parsing logic.
 #[inline]
 pub fn try_parse_named_meta_item(input: ParseStream) -> Result<NamedParse> {
     if input.peek(Token![=]) {
@@ -282,7 +287,7 @@ macro_rules! parse_named_meta_item_with {
 /// current stream and all following streams, and the index of the current field starting from `0`.
 /// Commas will be parsed between each field.
 ///
-/// Returns the number of items that were successfully parsed, or `Err` on any parsing errors or
+/// Returns the number of items that were successfully parsed, or [`Err`] on any parsing errors or
 /// the first failure of `func`. A trailing comma will be consumed only if the return value is less
 /// than `len`.
 #[inline]
@@ -315,16 +320,16 @@ where
 /// Parses an inline struct with named fields from a stream.
 ///
 /// Each stream in `inputs` will be parsed in order, first parsing a path by calling
-/// `syn::Path::parse_mod_style`. Then, `func` will be called for every field with three arguments:
-/// the current stream, the name of the field as a string, and the span of the field name. Commas
-/// will be parsed between each field. A trailing comma will always be consumed. Callers will
-/// typically check the field name for a match, and then call [`parse_named_meta_item`] or
-/// [`parse_named_meta_item_with`](fn@parse_named_meta_item_with).
+/// [`syn::Path::parse_mod_style`]. Then, `func` will be called for every field with three
+/// arguments: the current stream, the name of the field as a string, and the span of the field
+/// name. Commas will be parsed between each field. A trailing comma will always be consumed.
+/// Callers will typically check the field name for a match, and then call
+/// [`parse_named_meta_item`] or [`parse_named_meta_item_with`](fn@parse_named_meta_item_with).
 ///
 /// Callers will usually want to use [`check_unknown_attribute`] and [`skip_named_meta_item`] when
 /// encountering any unknown fields.
 ///
-/// Returns `Err` on any parsing errors or the first failure of `func`.
+/// Returns [`Err`] on any parsing errors or the first failure of `func`.
 #[inline]
 pub fn parse_struct<'s, F, S>(inputs: &[S], mut func: F) -> Result<()>
 where
