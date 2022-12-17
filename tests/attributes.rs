@@ -2,6 +2,44 @@
 
 use ::quote::quote as q;
 
+mod test_util;
+use test_util::*;
+
+#[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, PartialEq, Debug)]
+#[deluxe(attributes(single))]
+struct SingleAttribute(char);
+
+#[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, PartialEq, Debug)]
+#[deluxe(attributes(multi1, multi2))]
+struct MultiAttributes(char);
+
+#[test]
+fn multi_attributes() {
+    use ::deluxe::HasAttributes;
+
+    let expr: ::syn::Expr = ::syn::parse2(q! { #[multi1('a')] true }).unwrap();
+    let m: MultiAttributes = ::deluxe::parse_attributes(&expr).unwrap();
+    ::std::assert_eq!(expr.attrs().len(), 1);
+    ::std::assert_eq!(m.0, 'a');
+
+    let expr: ::syn::Expr = ::syn::parse2(q! { #[multi2('b')] true }).unwrap();
+    let m: MultiAttributes = ::deluxe::parse_attributes(&expr).unwrap();
+    ::std::assert_eq!(expr.attrs().len(), 1);
+    ::std::assert_eq!(m.0, 'b');
+
+    let expr = ::syn::parse2(q! { true }).unwrap();
+    ::std::assert_eq!(
+        ::deluxe::parse_attributes::<::syn::Expr, MultiAttributes>(&expr).unwrap_err_string(),
+        "missing required field 0"
+    );
+
+    let expr = ::syn::parse2(q! { #[multi2('c')] #[multi2('d')] true }).unwrap();
+    ::std::assert_eq!(
+        ::deluxe::parse_attributes::<::syn::Expr, MultiAttributes>(&expr).unwrap_err_string(),
+        "unexpected token"
+    );
+}
+
 #[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, PartialEq, Debug)]
 #[deluxe(attributes(container::clone))]
 struct CloneContainer {
@@ -232,4 +270,60 @@ fn container_enum() {
     ::std::assert!(
         ::std::matches!(cont, ContainerEnum::D { container: e, skipped: 0 } if e == expr)
     );
+}
+
+#[derive(Debug, PartialEq)]
+struct IdentWrapper<'t>(&'t ::syn::Ident);
+
+impl<'t> ::deluxe::ContainerFrom<'t, ::syn::ItemFn> for IdentWrapper<'t> {
+    #[inline]
+    fn container_from(t: &'t ::syn::ItemFn) -> Self {
+        Self(&t.sig.ident)
+    }
+}
+
+#[derive(::deluxe::ParseAttributes, PartialEq, Debug)]
+#[deluxe(attributes(container::wrapper))]
+struct WrapperContainer<'t> {
+    #[deluxe(container(ty = ::syn::ItemFn))]
+    container: IdentWrapper<'t>,
+    int: i32,
+}
+
+#[derive(Debug, PartialEq)]
+struct Ident2Wrapper<'s, 't>(::std::borrow::Cow<'s, str>, &'t ::syn::Ident);
+
+impl<'s, 't> ::deluxe::ContainerFrom<'t, ::syn::ItemFn> for Ident2Wrapper<'s, 't> {
+    #[inline]
+    fn container_from(t: &'t ::syn::ItemFn) -> Self {
+        Self(::std::convert::From::from("hello"), &t.sig.ident)
+    }
+}
+
+#[derive(::deluxe::ParseAttributes, PartialEq, Debug)]
+#[deluxe(attributes(container::wrapper))]
+struct Wrapper2Container<'s, 't> {
+    #[deluxe(container(ty = ::syn::ItemFn, lifetime = 't))]
+    container: Ident2Wrapper<'s, 't>,
+    int: i32,
+}
+
+#[test]
+fn custom_container() {
+    use ::deluxe::HasAttributes;
+    let func: ::syn::ItemFn = ::syn::parse2(q! {
+        #[container::wrapper(int = 72)]
+        fn abc() -> i32 { 0 }
+    })
+    .unwrap();
+    let cont: WrapperContainer = ::deluxe::parse_attributes(&func).unwrap();
+    ::std::assert_eq!(func.attrs().len(), 1);
+    ::std::assert_eq!(cont.container.0, &func.sig.ident);
+    ::std::assert_eq!(cont.int, 72);
+
+    let cont: Wrapper2Container = ::deluxe::parse_attributes(&func).unwrap();
+    ::std::assert_eq!(func.attrs().len(), 1);
+    ::std::assert_eq!(cont.container.0, "hello");
+    ::std::assert_eq!(cont.container.1, &func.sig.ident);
+    ::std::assert_eq!(cont.int, 72);
 }

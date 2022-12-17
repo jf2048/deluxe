@@ -1,7 +1,5 @@
 //! Additional helper functions for validating after parsing.
 
-use syn::spanned::Spanned;
-
 use crate::Errors;
 
 /// Appends an error if more than one given attribute is present.
@@ -11,7 +9,7 @@ use crate::Errors;
 /// `errors`, with `prefix` prepended onto the names.
 pub fn only_one<'t, I>(attrs: I, prefix: &str, errors: &Errors)
 where
-    I: IntoIterator<Item = &'t (&'static str, Option<&'t dyn Spanned>)>,
+    I: IntoIterator<Item = &'t (&'static str, Option<&'t dyn syn::spanned::Spanned>)>,
     I::IntoIter: Clone,
 {
     let iter = attrs.into_iter();
@@ -37,12 +35,17 @@ where
 #[doc(hidden)]
 macro_rules! _only_one_arg {
     (($name:expr, $value:expr)) => {
-        &($name, $value.map(|s| s as &dyn Spanned))
+        &(
+            $name,
+            $value.map(|s| s as &dyn $crate::syn::spanned::Spanned),
+        )
     };
     ($field:ident) => {
         &(
             std::stringify!($field),
-            $field.as_ref().map(|s| s as &dyn Spanned),
+            $field
+                .as_ref()
+                .map(|s| s as &dyn $crate::syn::spanned::Spanned),
         )
     };
 }
@@ -55,13 +58,13 @@ macro_rules! _only_one_arg {
 /// # Example
 ///
 /// ```
-/// let errors = Errors::new();
+/// let errors = deluxe_core::Errors::new();
 /// let my_bool: Option<syn::LitBool> = None;
 /// let path: Option<syn::Path> = None;
 /// let field3: Option<syn::Type> = None;
 /// // ... parsing omitted ...
 /// // field names are `my_bool`, `path`, `ty`
-/// only_one!("", &errors, my_bool, path, ("ty", field3.as_ref()));
+/// deluxe_core::only_one!("", &errors, my_bool, path, ("ty", field3.as_ref()));
 /// ```
 #[macro_export]
 macro_rules! only_one {

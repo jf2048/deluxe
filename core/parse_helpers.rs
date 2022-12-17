@@ -269,7 +269,7 @@ where
 /// if flags are not supported by the target type.
 #[macro_export]
 macro_rules! parse_named_meta_item_with {
-    ($input:expr, $name_span:expr, $($path:tt)*) => {
+    ($input:expr, $name_span:expr, $($path:tt)* $(,)?) => {
         $crate::parse_helpers::parse_named_meta_item_with(
             $input,
             $name_span,

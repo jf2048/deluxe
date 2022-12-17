@@ -71,6 +71,14 @@ pub fn derive_extract_attributes(item: TokenStream) -> TokenStream {
 ///   value type, an [`Option`], or a reference type. If the field is not a reference type, the
 ///   container will be [`clone`](Clone::clone)d into the field.
 ///
+///   If the type of the container contains a lifetime, Deluxe will try to use it for a lifetime
+///   bound for [`ParseAttributes`](deluxe_core::ParseAttributes). If the container type is a
+///   reference, it will try to infer it from the lietime of the reference. Otherwise, it will try
+///   to take the first lifetime parameter used by the type if one is present. If no lifetimes can
+///   be inferred, a new lifetime parameter will be generated. See
+///   [`container(lifetime = ...)`](#deluxecontainerlifetime--t-ty--pathmytype) for instructions on
+///   how to specify a lifetime parameter manually.
+///
 ///   If the struct/enum also derives [`ParseMetaItem`], then
 ///   [`#[deluxe(default)]`](ParseMetaItem#deluxedefault-1) is implied on any container fields. In
 ///   that case, a common pattern is to use an [`Option`] as the container field. It will be set to
@@ -99,8 +107,8 @@ pub fn derive_extract_attributes(item: TokenStream) -> TokenStream {
 ///   owning type.
 ///
 ///   This attribute is implemented by calling methods on the
-///   [`ToContainer`](deluxe_core::ToContainer) trait. Other container types besides references and
-///   [`Option`] will also need to provide an implementation for that trait.
+///   [`ContainerFrom`](deluxe_core::ContainerFrom) trait. Other container types besides references
+///   and [`Option`] will also need to provide an implementation for that trait.
 #[proc_macro_derive(ParseAttributes, attributes(deluxe))]
 pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
     let errors = Errors::new();
@@ -135,9 +143,11 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///   single parseable field. Analogous to `#[repr(transparent)]`. The struct can still contain
 ///   fields that are [`skip`](#deluxeskip), as those will be ignored by `transparent`.
 ///
-/// - ##### `#[deluxe(transparent(flatten)]`
+/// - ##### `#[deluxe(transparent(flatten_named)]`
 ///
-///   `#[deluxe(transparent(flatten, append)]`
+///   `#[deluxe(transparent(flatten_unnamed)]`
+///
+///   `#[deluxe(transparent(flatten_unnamed, append)]`
 ///
 ///   `#[deluxe(transparent(rest)]`
 ///

@@ -156,6 +156,8 @@ impl<'e> Enum<'e> {
     }
 }
 
+deluxe_core::define_with_collection!(mod mod_path_vec, deluxe_core::with::mod_path, Vec<syn::Path>);
+
 impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
     #[inline]
     fn path_matches(path: &syn::Path) -> bool {
@@ -194,7 +196,7 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                             let attrs = deluxe_core::parse_named_meta_item_with!(
                                 input,
                                 span,
-                                deluxe_core::with::mod_path_vec
+                                mod_path_vec
                             )?;
                             attributes.extend(attrs.into_iter());
                         }

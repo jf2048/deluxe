@@ -527,6 +527,9 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                             >(input, span)?);
                         }
                         "allow_unknown_fields" => {
+                            if matches!(variant.fields, syn::Fields::Unnamed(_)) {
+                                errors.push(span, "`allow_unknown_fields` not allowed on tuple variant");
+                            }
                             if allow_unknown_fields.is_some() {
                                 errors.push(span, "duplicate attribute for `allow_unknown_fields`");
                             }
@@ -609,6 +612,23 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                             errors.push(c.span(), "Duplicate `container` field")
                         } else {
                             container = Some(c);
+                        }
+                    }
+                }
+                if matches!(variant.fields, syn::Fields::Unnamed(_)) {
+                    let mut has_default_gap = false;
+                    for field in fields.iter().rev() {
+                        if field.is_parsable() && !field.is_flat() {
+                            if let Some(default) = &field.default {
+                                if has_default_gap {
+                                    errors.push(
+                                        default.span(),
+                                        "`default` fields can only be at the end of a tuple variant",
+                                    );
+                                }
+                            } else {
+                                has_default_gap = true;
+                            }
                         }
                     }
                 }

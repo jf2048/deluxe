@@ -3,13 +3,14 @@
 use ::proc_macro2::TokenStream;
 use ::std::prelude::v1::*;
 
-pub trait SynErrorExt {
-    fn to_multi_string(&self) -> String;
+pub trait SynResultExt {
+    fn unwrap_err_string(self) -> String;
 }
 
-impl SynErrorExt for ::syn::Error {
-    fn to_multi_string(&self) -> String {
-        self.into_iter()
+impl<T: ::std::fmt::Debug> SynResultExt for ::syn::Result<T> {
+    fn unwrap_err_string(self) -> String {
+        self.unwrap_err()
+            .into_iter()
             .map(|e| e.to_string())
             .collect::<Vec<_>>()
             .join(", ")

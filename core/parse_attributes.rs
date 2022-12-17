@@ -495,75 +495,75 @@ impl_has_attributes!(syn::Variant);
 ///
 /// This trait is only called by the `#[deluxe(container)`] attribute on fields to properly handle
 /// conversions to corresponding owned and [`Option`] types.
-pub trait ToContainer<'t, T> {
+pub trait ContainerFrom<'t, T> {
     /// Converts a reference to a stored container `T`.
-    fn to_container(&'t self) -> T;
+    #[inline]
+    #[allow(unused)]
+    fn container_from(t: &'t T) -> Self where Self: Sized {
+        unimplemented!()
+    }
     /// Converts a mutable reference to a stored container `T`.
-    fn to_container_mut(&'t mut self) -> T;
-}
-
-impl<'t, T: HasAttributes + Clone> ToContainer<'t, T> for T {
     #[inline]
-    fn to_container(&'t self) -> T {
-        self.clone()
-    }
-    #[inline]
-    fn to_container_mut(&'t mut self) -> T {
-        self.clone()
-    }
-}
-
-impl<'t, T: HasAttributes + Clone> ToContainer<'t, Option<T>> for T {
-    #[inline]
-    fn to_container(&'t self) -> Option<T> {
-        Some(self.clone())
-    }
-    #[inline]
-    fn to_container_mut(&'t mut self) -> Option<T> {
-        Some(self.clone())
-    }
-}
-
-impl<'t, T: HasAttributes> ToContainer<'t, &'t T> for T {
-    #[inline]
-    fn to_container(&'t self) -> &'t T {
-        self
-    }
-    #[inline]
-    fn to_container_mut(&'t mut self) -> &'t T {
-        self
-    }
-}
-
-impl<'t, T: HasAttributes> ToContainer<'t, Option<&'t T>> for T {
-    #[inline]
-    fn to_container(&'t self) -> Option<&'t T> {
-        Some(self)
-    }
-    #[inline]
-    fn to_container_mut(&'t mut self) -> Option<&'t T> {
-        Some(self)
-    }
-}
-
-impl<'t, T: HasAttributes> ToContainer<'t, &'t mut T> for T {
-    #[inline]
-    fn to_container(&'t self) -> &'t mut T {
+    #[allow(unused)]
+    fn container_from_mut(t: &'t mut T) -> Self where Self: Sized {
         unimplemented!()
     }
+}
+
+impl<'t, T: HasAttributes + Clone> ContainerFrom<'t, T> for T {
     #[inline]
-    fn to_container_mut(&'t mut self) -> &'t mut T {
-        self
+    fn container_from(t: &'t T) -> Self {
+        t.clone()
+    }
+    #[inline]
+    fn container_from_mut(t: &'t mut T) -> Self {
+        t.clone()
     }
 }
 
-impl<'t, T: HasAttributes> ToContainer<'t, Option<&'t mut T>> for T {
+impl<'t, T: HasAttributes + Clone> ContainerFrom<'t, T> for Option<T> {
     #[inline]
-    fn to_container(&'t self) -> Option<&'t mut T> {
-        unimplemented!()
+    fn container_from(t: &'t T) -> Self {
+        Some(t.clone())
     }
     #[inline]
-    fn to_container_mut(&'t mut self) -> Option<&'t mut T> {
-        Some(self)
+    fn container_from_mut(t: &'t mut T) -> Self {
+        Some(t.clone())
+    }
+}
+
+impl<'t, T: HasAttributes> ContainerFrom<'t, T> for &'t T {
+    #[inline]
+    fn container_from(t: &'t T) -> Self {
+        t
+    }
+    #[inline]
+    fn container_from_mut(t: &'t mut T) -> Self {
+        t
+    }
+}
+
+impl<'t, T: HasAttributes> ContainerFrom<'t, T> for Option<&'t T> {
+    #[inline]
+    fn container_from(t: &'t T) -> Self {
+        Some(t)
+    }
+    #[inline]
+    fn container_from_mut(t: &'t mut T) -> Self {
+        Some(t)
+    }
+}
+
+impl<'t, T: HasAttributes> ContainerFrom<'t, T> for &'t mut T {
+    #[inline]
+    fn container_from_mut(t: &'t mut T) -> Self {
+        t
+    }
+}
+
+impl<'t, T: HasAttributes> ContainerFrom<'t, T> for Option<&'t mut T> {
+    #[inline]
+    fn container_from_mut(t: &'t mut T) -> Self {
+        Some(t)
     }
 }

@@ -375,6 +375,8 @@ impl<'s> Struct<'s> {
     }
 }
 
+deluxe_core::define_with_collection!(mod mod_path_vec, deluxe_core::with::mod_path, Vec<syn::Path>);
+
 impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
     #[inline]
     fn path_matches(path: &syn::Path) -> bool {
@@ -431,6 +433,9 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                             transparent = Some(parse_helpers::parse_named_meta_item(input, span)?);
                         }
                         "allow_unknown_fields" => {
+                            if matches!(struct_.fields, syn::Fields::Unnamed(_)) {
+                                errors.push(span, "`allow_unknown_fields` not allowed on tuple struct");
+                            }
                             if allow_unknown_fields.is_some() {
                                 errors.push(span, "duplicate attribute for `allow_unknown_fields`");
                             }
@@ -456,7 +461,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                             let attrs = deluxe_core::parse_named_meta_item_with!(
                                 input,
                                 span,
-                                deluxe_core::with::mod_path_vec
+                                mod_path_vec
                             )?;
                             attributes.extend(attrs.into_iter());
                         }
@@ -505,6 +510,23 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                             errors.push(c.span(), "Duplicate `container` field")
                         } else {
                             container = Some(c);
+                        }
+                    }
+                }
+                if matches!(struct_.fields, syn::Fields::Unnamed(_)) {
+                    let mut has_default_gap = false;
+                    for field in fields.iter().rev() {
+                        if field.is_parsable() && !field.is_flat() {
+                            if let Some(default) = &field.default {
+                                if has_default_gap {
+                                    errors.push(
+                                        default.span(),
+                                        "`default` fields can only be at the end of a tuple struct",
+                                    );
+                                }
+                            } else {
+                                has_default_gap = true;
+                            }
                         }
                     }
                 }

@@ -170,9 +170,9 @@ impl deluxe_core::ParseMetaItem for FieldContainer {
                     }
                     container.lifetime = Some(parse_helpers::parse_named_meta_item(input, span)?);
                 }
-                "type" => {
+                "ty" => {
                     if container.ty.is_some() {
-                        errors.push(span, "duplicate attribute for `type`");
+                        errors.push(span, "duplicate attribute for `ty`");
                     }
                     container.ty = Some(parse_helpers::parse_named_meta_item(input, span)?);
                 }
@@ -180,7 +180,7 @@ impl deluxe_core::ParseMetaItem for FieldContainer {
                     errors.push_syn(parse_helpers::unknown_error(
                         path,
                         span,
-                        &["lifetime", "type"],
+                        &["lifetime", "ty"],
                     ));
                     parse_helpers::skip_named_meta_item(input);
                 }
@@ -387,12 +387,12 @@ impl<'f> Field<'f> {
             (f.is_container() && *mode != TokenMode::ParseMetaItem).then(|| {
                 let name = names[i].clone();
                 let func = match mode {
-                    TokenMode::ParseAttributes => quote! { to_container },
-                    TokenMode::ExtractAttributes => quote! { to_container_mut },
+                    TokenMode::ParseAttributes => quote! { container_from },
+                    TokenMode::ExtractAttributes => quote! { container_from_mut },
                     _ => unreachable!(),
                 };
                 quote_mixed! {
-                    #name = #priv_::Option::Some(#crate_::ToContainer::#func(obj));
+                    #name = #priv_::Option::Some(#crate_::ContainerFrom::#func(obj));
                 }
             })
         });
@@ -406,31 +406,32 @@ impl<'f> Field<'f> {
                     if f.is_container() || *transparent {
                         return None;
                     }
-                    let push = f.default.is_none().then(|| {
-                        let name = &names[i];
-                        if is_unnamed {
-                            quote_mixed! {
-                                if #name.is_none() {
-                                    errors.push_call_site(#priv_::format_args!(
-                                        "missing required field {}",
-                                        index + #cur_index #extra_counts,
-                                    ));
+                    let push = (f.default.is_none() && !matches!(target, ParseTarget::Var(_)))
+                        .then(|| {
+                            let name = &names[i];
+                            if is_unnamed {
+                                quote_mixed! {
+                                    if #name.is_none() {
+                                        errors.push_call_site(#priv_::format_args!(
+                                            "missing required field {}",
+                                            index + #cur_index #extra_counts,
+                                        ));
+                                    }
                                 }
-                            }
-                        } else if !f.is_flat() {
-                            let field = f.field.ident.as_ref().unwrap().to_string();
-                            quote_mixed! {
-                                if #name.is_none() {
-                                    errors.push_call_site(#priv_::format_args!(
-                                        "missing required field `{}`",
-                                        #priv_::parse_helpers::join_path(prefix, #field)
-                                    ));
+                            } else if !f.is_flat() {
+                                let field = f.field.ident.as_ref().unwrap().to_string();
+                                quote_mixed! {
+                                    if #name.is_none() {
+                                        errors.push_call_site(#priv_::format_args!(
+                                            "missing required field `{}`",
+                                            #priv_::parse_helpers::join_path(prefix, #field)
+                                        ));
+                                    }
                                 }
+                            } else {
+                                quote! {}
                             }
-                        } else {
-                            quote! {}
-                        }
-                    });
+                        });
                     if is_unnamed {
                         let ty = &f.field.ty;
                         if f.flatten.as_ref().map(|f| f.value).unwrap_or(false) {
@@ -612,7 +613,12 @@ impl<'f> Field<'f> {
                     ParseTarget::Var(target) => {
                         let field_defs = fields.iter().enumerate().map(|(i, _)| {
                             let name = &names[i];
-                            quote_mixed! { #target.#i = #name; }
+                            let i = syn::Index::from(i);
+                            quote_mixed! {
+                                if let #priv_::Option::Some(val) = #name {
+                                    #target.#i = val;
+                                }
+                            }
                         });
                         quote_mixed! {
                             #(#field_defs)*
@@ -834,6 +840,10 @@ impl<'f> Field<'f> {
                         }
                     }
                 });
+                let allows_empty = matches!(target, ParseTarget::Var(_))
+                    || pub_fields
+                        .clone()
+                        .all(|f| f.is_flat() || f.default.is_some());
                 (
                     quote_mixed! {
                         <#priv_::parse_helpers::Paren as #priv_::parse_helpers::ParseDelimited>::parse_delimited_with(
@@ -848,7 +858,14 @@ impl<'f> Field<'f> {
                         #parse_fields
                         #post
                     }),
-                    None,
+                    allows_empty.then(|| {
+                        quote_mixed! {
+                            let _mode = #crate_::ParseMode::Unnamed;
+                            #priv_::parse_helpers::parse_empty(span, |input| {
+                                #inline_expr
+                            })
+                        }
+                    }),
                 )
             }
             syn::Fields::Unit => {

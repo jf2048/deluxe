@@ -24,3 +24,10 @@ pub mod with;
 pub use parse_attributes::*;
 pub use parse_meta::*;
 pub use util::*;
+
+pub use proc_macro2::Span;
+
+#[doc(hidden)]
+pub use syn;
+#[doc(hidden)]
+pub use {Default, IntoIterator, Option, Vec};
