@@ -348,12 +348,23 @@ fn vec_field() {
 }
 
 #[test]
-fn skipped_field() {
+fn skipped_field_rest() {
+    use ::std::prelude::v1::*;
     let parse = parse_meta::<MyNamedComplex>;
     ::std::assert_eq!(parse(q! { { idents = [] } }).unwrap().skipped, false);
     ::std::assert_eq!(
-        parse(q! { { idents = [], skipped = true } }).unwrap_err_string(),
-        "unknown field `skipped`"
+        parse(q! { { idents = [], skipped = true } }).unwrap(),
+        MyNamedComplex {
+            idents: ::std::vec![],
+            skipped: false,
+            exprs: ::std::vec![],
+            rest: [(
+                ::syn::parse_quote! { skipped },
+                ::syn::parse_quote! { true },
+            )]
+            .into_iter()
+            .collect(),
+        },
     );
 }
 
@@ -372,8 +383,9 @@ impl MyNamedComplex {
     fn rest_str(&self) -> ::std::string::String {
         use ::quote::ToTokens;
         use ::std::prelude::v1::*;
-        self.rest
-            .iter()
+        let mut rest = self.rest.iter().collect::<Vec<_>>();
+        rest.sort_by_key(|(k, _)| k.to_token_stream().to_string());
+        rest.into_iter()
             .map(|(k, v)| ::std::format!("({} => {})", k.to_token_stream(), v.to_token_stream()))
             .collect::<Vec<_>>()
             .join(", ")
@@ -388,17 +400,17 @@ fn struct_append() {
         parse(q! { { idents = [], exprs = {} } })
             .unwrap()
             .exprs_str(),
-        "({})",
+        "({ })",
     );
     ::std::assert_eq!(
         parse(q! { { idents = [], exprs = {}, exprs = 123 + 4 } })
             .unwrap()
             .exprs_str(),
-        "({}), (123 + 4)",
+        "({ }), (123 + 4)",
     );
     ::std::assert_eq!(
         parse(q! { { idents = [], exprs = ! } }).unwrap_err_string(),
-        "expected token"
+        "unexpected end of input, expected expression"
     );
 }
 
@@ -1186,7 +1198,7 @@ struct MyTransparentUnnamedVec(::std::vec::Vec<i32>);
 )]
 #[deluxe(transparent(flatten_unnamed, append))]
 struct MyTransparentNamedVec {
-    nums: ::std::vec::Vec<i32>
+    nums: ::std::vec::Vec<i32>,
 }
 
 #[derive(
@@ -1198,7 +1210,6 @@ struct MyTransparentNamedVec {
 )]
 #[deluxe(transparent(rest))]
 struct MyTransparentUnnamedMap(::std::collections::HashMap<::syn::Path, i32>);
-
 
 #[derive(
     ::deluxe::ParseAttributes,
@@ -1220,17 +1231,301 @@ struct MyTransparentNamedMap {
     Debug,
 )]
 enum TransparentHolder {
-    A { #[deluxe(flatten)] s: MyTransparentUnnamedStruct },
-    B { #[deluxe(flatten)] s: MyTransparentNamedStruct },
+    A {
+        #[deluxe(flatten)]
+        s: MyTransparentUnnamedStruct,
+    },
+    B {
+        #[deluxe(flatten)]
+        s: MyTransparentNamedStruct,
+    },
     C(#[deluxe(flatten)] MyTransparentUnnamedVec),
     D(#[deluxe(flatten)] MyTransparentNamedVec),
-    E { #[deluxe(append)] v: MyTransparentUnnamedVec },
-    F { #[deluxe(append)] v: MyTransparentNamedVec },
-    G { #[deluxe(rest)] r: MyTransparentUnnamedMap, },
-    H { #[deluxe(rest)] r: MyTransparentNamedMap, },
+    E {
+        #[deluxe(append)]
+        v: MyTransparentUnnamedVec,
+    },
+    F {
+        #[deluxe(append)]
+        v: MyTransparentNamedVec,
+    },
+    G {
+        #[deluxe(rest)]
+        r: MyTransparentUnnamedMap,
+    },
+    H {
+        #[deluxe(rest)]
+        r: MyTransparentNamedMap,
+    },
 }
 
 #[test]
 fn transparent_flat() {
-    // TODO
+    use ::std::prelude::v1::*;
+    let parse = parse_meta::<TransparentHolder>;
+    ::std::assert_eq!(
+        parse(q! { { a(a(4), b("hello")) } }).unwrap(),
+        TransparentHolder::A {
+            s: MyTransparentUnnamedStruct(MyNamed {
+                a: 4,
+                b: String::from("hello")
+            })
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { b(a(4), b("hello")) } }).unwrap(),
+        TransparentHolder::B {
+            s: MyTransparentNamedStruct {
+                named: MyNamed {
+                    a: 4,
+                    b: String::from("hello")
+                }
+            }
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { c } }).unwrap(),
+        TransparentHolder::C(MyTransparentUnnamedVec(::std::vec![]))
+    );
+    ::std::assert_eq!(
+        parse(q! { { c() } }).unwrap(),
+        TransparentHolder::C(MyTransparentUnnamedVec(::std::vec![]))
+    );
+    ::std::assert_eq!(
+        parse(q! { { c(1, 2, 3) } }).unwrap(),
+        TransparentHolder::C(MyTransparentUnnamedVec(::std::vec![1, 2, 3]))
+    );
+    ::std::assert_eq!(
+        parse(q! { { d } }).unwrap(),
+        TransparentHolder::D(MyTransparentNamedVec {
+            nums: ::std::vec![]
+        })
+    );
+    ::std::assert_eq!(
+        parse(q! { { d() } }).unwrap(),
+        TransparentHolder::D(MyTransparentNamedVec {
+            nums: ::std::vec![]
+        })
+    );
+    ::std::assert_eq!(
+        parse(q! { { d(1, 2, 3) } }).unwrap(),
+        TransparentHolder::D(MyTransparentNamedVec {
+            nums: ::std::vec![1, 2, 3]
+        })
+    );
+    ::std::assert_eq!(
+        parse(q! { { e(v(1), v(2), v(3)) } }).unwrap(),
+        TransparentHolder::E {
+            v: MyTransparentUnnamedVec(::std::vec![1, 2, 3])
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { f(v(1), v(2), v(3)) } }).unwrap(),
+        TransparentHolder::F {
+            v: MyTransparentNamedVec {
+                nums: ::std::vec![1, 2, 3]
+            }
+        }
+    );
+
+    let map = [("a", 1), ("b", 2), ("c", 3)]
+        .into_iter()
+        .map(|(k, v)| {
+            let k = ::syn::Ident::new(k, ::proc_macro2::Span::call_site());
+            let k: ::syn::Path = ::syn::parse_quote! { #k };
+            (k, v)
+        })
+        .collect::<::std::collections::HashMap<_, _>>();
+
+    ::std::assert_eq!(
+        parse(q! { { g(a(1), b(2), c(3)) } }).unwrap(),
+        TransparentHolder::G {
+            r: MyTransparentUnnamedMap(map.clone())
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { h(a(1), b(2), c(3)) } }).unwrap(),
+        TransparentHolder::H {
+            r: MyTransparentNamedMap { nums: map.clone() }
+        }
+    );
+}
+
+#[derive(PartialEq, Debug)]
+struct CustomAppendSum(i32);
+
+impl ::deluxe::ParseMetaAppend for CustomAppendSum {
+    fn parse_meta_append<'s, S, I, P>(inputs: &[S], paths: I) -> ::deluxe::Result<Self>
+    where
+        S: ::std::borrow::Borrow<renamed_deluxe::____private::ParseBuffer<'s>>,
+        I: ::std::iter::IntoIterator<Item = P>,
+        I::IntoIter: ::std::clone::Clone,
+        P: ::std::convert::AsRef<str>,
+    {
+        use ::std::prelude::v1::*;
+        let mut value = 0;
+        let errors = ::deluxe::Errors::new();
+        let paths = paths.into_iter();
+        ::deluxe_core::parse_helpers::parse_struct(inputs, |input, p, pspan| {
+            if paths.clone().any(|path| path.as_ref() == p) {
+                value += ::deluxe_core::parse_helpers::parse_named_meta_item::<i32>(input, pspan)?;
+            } else {
+                ::deluxe_core::parse_helpers::skip_named_meta_item(input);
+            }
+            ::deluxe::Result::Ok(())
+        })?;
+        errors.check()?;
+        ::deluxe::Result::Ok(Self(value))
+    }
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+struct CustomAppend {
+    first: i32,
+    #[deluxe(append)]
+    sum: CustomAppendSum,
+}
+
+#[test]
+fn custom_append_sum() {
+    let parse = parse_meta::<CustomAppend>;
+    ::std::assert_eq!(
+        parse(q! { { first = 50, sum = 2, sum = 3 } }).unwrap(),
+        CustomAppend {
+            first: 50,
+            sum: CustomAppendSum(5)
+        }
+    );
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+struct MyOptionalNamed {
+    #[deluxe(default)]
+    a: i32,
+    #[deluxe(default)]
+    b: ::std::string::String,
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+struct PositionalAndNamed(
+    #[deluxe(default)] i32,
+    #[deluxe(default)] i32,
+    #[deluxe(flatten)] MyOptionalNamed,
+);
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+struct NestedPositionalAndNamed(
+    i32,
+    #[deluxe(flatten)] MyUnnamed,
+    #[deluxe(default)] i32,
+    #[deluxe(flatten)] PositionalAndNamed,
+);
+
+#[test]
+fn positional_and_named() {
+    use ::std::prelude::v1::*;
+    let parse = parse_meta::<PositionalAndNamed>;
+
+    ::std::assert_eq!(
+        parse(q! { (1) }).unwrap(),
+        PositionalAndNamed(1, 0, MyOptionalNamed { a: 0, b: "".into() })
+    );
+    ::std::assert_eq!(
+        parse(q! { (1, 2) }).unwrap(),
+        PositionalAndNamed(1, 2, MyOptionalNamed { a: 0, b: "".into() })
+    );
+    ::std::assert_eq!(
+        parse(q! { (1, 2, b = "4" ) }).unwrap(),
+        PositionalAndNamed(
+            1,
+            2,
+            MyOptionalNamed {
+                a: 0,
+                b: "4".into()
+            }
+        )
+    );
+    ::std::assert_eq!(
+        parse(q! { (1, 2, a = 3, b = "4" ) }).unwrap(),
+        PositionalAndNamed(
+            1,
+            2,
+            MyOptionalNamed {
+                a: 3,
+                b: "4".into()
+            }
+        )
+    );
+    ::std::assert_eq!(
+        parse(q! { (1, 2, b = "4", a = 3 ) }).unwrap(),
+        PositionalAndNamed(
+            1,
+            2,
+            MyOptionalNamed {
+                a: 3,
+                b: "4".into()
+            }
+        )
+    );
+
+    let parse = parse_meta::<NestedPositionalAndNamed>;
+
+    ::std::assert_eq!(
+        parse(q! { (1, 2, "3") }).unwrap(),
+        NestedPositionalAndNamed(
+            1,
+            MyUnnamed(2, "3".into()),
+            0,
+            PositionalAndNamed(0, 0, MyOptionalNamed { a: 0, b: "".into() })
+        )
+    );
+    ::std::assert_eq!(
+        parse(q! { (1, 2, "3", 4, 5) }).unwrap(),
+        NestedPositionalAndNamed(
+            1,
+            MyUnnamed(2, "3".into()),
+            4,
+            PositionalAndNamed(5, 0, MyOptionalNamed { a: 0, b: "".into() })
+        )
+    );
+    ::std::assert_eq!(
+        parse(q! { (1, 2, "3", 4, 5, 6, a = 7, b = "8" ) }).unwrap(),
+        NestedPositionalAndNamed(
+            1,
+            MyUnnamed(2, "3".into()),
+            4,
+            PositionalAndNamed(
+                5,
+                6,
+                MyOptionalNamed {
+                    a: 7,
+                    b: "8".into()
+                }
+            )
+        )
+    );
 }
