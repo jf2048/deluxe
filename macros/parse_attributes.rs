@@ -79,7 +79,7 @@ fn impl_for_struct<'i>(
                 }
                 syn::Fields::Unnamed(_) => {
                     quote_mixed! {
-                        let mut index = 0;
+                        let mut index = 0usize;
                     }
                 }
                 _ => quote::quote! {},
