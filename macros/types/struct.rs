@@ -181,6 +181,7 @@ impl<'s> Struct<'s> {
             inline_expr,
             allowed_expr,
             transparent,
+            variant: false,
             allow_unknown_fields,
         };
         let orig_fields = match &orig.data {

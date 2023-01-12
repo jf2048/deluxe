@@ -499,13 +499,19 @@ pub trait ContainerFrom<'t, T> {
     /// Converts a reference to a stored container `T`.
     #[inline]
     #[allow(unused)]
-    fn container_from(t: &'t T) -> Self where Self: Sized {
+    fn container_from(t: &'t T) -> Self
+    where
+        Self: Sized,
+    {
         unimplemented!()
     }
     /// Converts a mutable reference to a stored container `T`.
     #[inline]
     #[allow(unused)]
-    fn container_from_mut(t: &'t mut T) -> Self where Self: Sized {
+    fn container_from_mut(t: &'t mut T) -> Self
+    where
+        Self: Sized,
+    {
         unimplemented!()
     }
 }

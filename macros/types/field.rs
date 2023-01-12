@@ -241,6 +241,7 @@ pub(super) struct FieldData<'t, 'i, 'a> {
     pub inline_expr: &'i syn::Expr,
     pub allowed_expr: &'a syn::Expr,
     pub transparent: bool,
+    pub variant: bool,
     pub allow_unknown_fields: bool,
 }
 
@@ -362,6 +363,105 @@ impl<'f> Field<'f> {
             }
         }
     }
+    fn to_parse_call_tokens(
+        &self,
+        inputs_expr: &TokenStream,
+        allowed_expr: &syn::Expr,
+        crate_: &syn::Path,
+        priv_: &syn::Path,
+    ) -> TokenStream {
+        let ty = &self.field.ty;
+        let module = self
+            .with
+            .as_ref()
+            .map(|m| quote_spanned! { m.span() => #m });
+        if self.append.map(|v| *v).unwrap_or(false) {
+            let path = module.unwrap_or_else(|| {
+                quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaAppend> }
+            });
+            let idents = self.idents.iter().map(|i| i.to_string());
+            quote_mixed! {
+                #path::parse_meta_append(
+                    #inputs_expr,
+                    &#priv_::parse_helpers::join_paths(prefix, &[#(#idents),*]),
+                )
+            }
+        } else if self.rest.map(|v| *v).unwrap_or(false) {
+            let path = module.unwrap_or_else(|| {
+                quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaRest> }
+            });
+            quote_mixed! {
+                #path::parse_meta_rest(#inputs_expr, #allowed_expr)
+            }
+        } else if let Some(FieldFlatten {
+            value: true,
+            prefix,
+            ..
+        }) = self.flatten.as_ref()
+        {
+            if self.field.ident.is_some() {
+                let prefix = match prefix {
+                    Some(prefix) => {
+                        let prefix = parse_helpers::path_to_string(prefix);
+                        quote_mixed! {
+                            &#priv_::parse_helpers::join_prefix(prefix, #prefix)
+                        }
+                    }
+                    None => quote_mixed! { "" },
+                };
+                let path = module.unwrap_or_else(|| {
+                    quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaFlatNamed> }
+                });
+                quote_mixed! {
+                    #path::parse_meta_flat_named(
+                        #inputs_expr,
+                        #crate_::ParseMode::Named(span),
+                        #prefix,
+                        false
+                    )
+                }
+            } else {
+                let path = module.unwrap_or_else(|| {
+                    quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaFlatUnnamed> }
+                });
+                quote_mixed! {
+                    #path::parse_meta_flat_unnamed(inputs, #crate_::ParseMode::Unnamed, index)
+                }
+            }
+        } else if self.field.ident.is_some() {
+            // named field
+            match module {
+                Some(m) => {
+                    let value_ident = syn::Ident::new("value", Span::mixed_site());
+                    let input_ident = syn::Ident::new("input", Span::mixed_site());
+                    let span_ident = syn::Ident::new("span", Span::mixed_site());
+                    // bind the return to a variable to span a type conversion error properly
+                    quote_spanned! { m.span() =>
+                        {
+                            let #value_ident = #crate_::parse_named_meta_item_with!(#input_ident, #span_ident, #m)?;
+                            #value_ident
+                        }
+                    }
+                }
+                None => {
+                    let func = quote_spanned! { ty.span() =>
+                        #priv_::parse_helpers::parse_named_meta_item::<#ty>
+                    };
+                    quote_mixed! {
+                        #func(input, span)?
+                    }
+                }
+            }
+        } else {
+            // unnamed field
+            let path = module.unwrap_or_else(|| {
+                quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaItem> }
+            });
+            quote_mixed! {
+                #path::parse_meta_item(input, #crate_::ParseMode::Unnamed)
+            }
+        }
+    }
     pub(super) fn to_pre_post_tokens(
         fields: &[Self],
         orig: &syn::Fields,
@@ -373,6 +473,7 @@ impl<'f> Field<'f> {
             target,
             allowed_expr,
             transparent,
+            variant,
             ..
         } = data;
         let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
@@ -399,6 +500,16 @@ impl<'f> Field<'f> {
         let field_errors = {
             let mut cur_index = 0usize;
             let mut extra_counts = quote! {};
+            let last_flat = is_unnamed
+                .then(|| {
+                    fields
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, f)| f.is_parsable() && f.is_flat())
+                        .last()
+                        .map(|(i, _)| i)
+                })
+                .flatten();
             fields
                 .iter()
                 .enumerate()
@@ -410,12 +521,42 @@ impl<'f> Field<'f> {
                         .then(|| {
                             let name = &names[i];
                             if is_unnamed {
-                                quote_mixed! {
-                                    if #name.is_none() {
-                                        errors.push_call_site(#priv_::format_args!(
-                                            "missing required field {}",
-                                            index + #cur_index #extra_counts,
-                                        ));
+                                if f.is_flat() {
+                                    let inputs_expr = if Some(i) == last_flat {
+                                        quote_mixed! { inputs }
+                                    } else {
+                                        quote_mixed! {
+                                            &#priv_::parse_helpers::fork_inputs(inputs)
+                                        }
+                                    };
+                                    let call = f.to_parse_call_tokens(&inputs_expr, allowed_expr, crate_, priv_);
+                                    let ty = &f.field.ty;
+                                    let span = if *variant {
+                                        quote_mixed! { span }
+                                    } else {
+                                        quote_mixed! { #priv_::Span::call_site() }
+                                    };
+                                    quote_mixed! {
+                                        if #name.is_none() {
+                                            let _mode = #crate_::ParseMode::Unnamed;
+                                            #priv_::parse_helpers::parse_empty(#span, |input| {
+                                                let inputs = &[input];
+                                                #name = #priv_::Option::Some(#call?);
+                                                #crate_::Result::Ok(())
+                                            })?;
+                                            if let #priv_::Option::Some(count) = <#ty as #crate_::ParseMetaFlatUnnamed>::field_count() {
+                                                index += count;
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    quote_mixed! {
+                                        if #name.is_none() {
+                                            errors.push_call_site(#priv_::format_args!(
+                                                "missing required field {}",
+                                                index + #cur_index #extra_counts,
+                                            ));
+                                        }
                                     }
                                 }
                             } else if !f.is_flat() {
@@ -496,11 +637,11 @@ impl<'f> Field<'f> {
                 let last_flat = fields
                     .iter()
                     .enumerate()
-                    .filter(|(_, f)| f.is_parsable() && f.flatten.is_some())
+                    .filter(|(_, f)| f.is_parsable() && f.is_flat())
                     .last()
                     .map(|(i, _)| i);
                 let flat_fields = fields.iter().enumerate().filter_map(|(i, f)| {
-                    if !f.is_parsable() {
+                    if !f.is_flat() || !f.is_parsable() {
                         return None;
                     }
                     let inputs_expr = if Some(i) == last_flat {
@@ -510,49 +651,10 @@ impl<'f> Field<'f> {
                             &#priv_::parse_helpers::fork_inputs(inputs)
                         }
                     };
-                    let func = if f.append.map(|v| *v).unwrap_or(false) {
-                        let ty = &f.field.ty;
-                        let func = quote_spanned! { ty.span() =>
-                            <#ty as #crate_::ParseMetaAppend>::parse_meta_append
-                        };
-                        let idents = f.idents.iter().map(|i| i.to_string());
-                        quote_mixed! {
-                            #func(
-                                #inputs_expr,
-                                &#priv_::parse_helpers::join_paths(prefix, &[#(#idents),*]),
-                            )
-                        }
-                    } else if f.rest.map(|v| *v).unwrap_or(false) {
-                        let ty = &f.field.ty;
-                        let func = quote_spanned! { ty.span() =>
-                            <#ty as #crate_::ParseMetaRest>::parse_meta_rest
-                        };
-                        quote_mixed! {
-                            #func(#inputs_expr, #allowed_expr)
-                        }
-                    } else if let Some(flatten) = f.flatten.as_ref() {
-                        let ty = &f.field.ty;
-                        let prefix = match &flatten.prefix {
-                            Some(prefix) => {
-                                let prefix = parse_helpers::path_to_string(prefix);
-                                quote_mixed! {
-                                    &#priv_::parse_helpers::join_prefix(prefix, #prefix)
-                                }
-                            }
-                            None => quote_mixed! { "" },
-                        };
-                        let func = quote_spanned! { ty.span() =>
-                            <#ty as #crate_::ParseMetaFlatNamed>::parse_meta_flat_named
-                        };
-                        quote_mixed! {
-                            #func(#inputs_expr, #crate_::ParseMode::Named(span), #prefix, false)
-                        }
-                    } else {
-                        return None;
-                    };
+                    let call = f.to_parse_call_tokens(&inputs_expr, allowed_expr, crate_, priv_);
                     let name = &names[i];
                     Some(quote_mixed! {
-                        match #func {
+                        match #call {
                             #crate_::Result::Ok(val) => #name = #priv_::Option::Some(val),
                             #crate_::Result::Err(err) => errors.push_syn(err),
                         }
@@ -697,29 +799,7 @@ impl<'f> Field<'f> {
                     let name = names[i].clone();
                     let error = format!("duplicate attribute for `{}`", f.idents.first().unwrap());
                     let idents = f.idents.iter().map(|i| i.to_string());
-                    let call = match f.with.as_ref() {
-                        Some(m) => {
-                            let value_ident = syn::Ident::new("value", Span::mixed_site());
-                            let input_ident = syn::Ident::new("input", Span::mixed_site());
-                            let span_ident = syn::Ident::new("span", Span::mixed_site());
-                            // bind the return to a variable to span a type conversion error properly
-                            quote_spanned! { m.span() =>
-                                {
-                                    let #value_ident = #crate_::parse_named_meta_item_with!(#input_ident, #span_ident, #m)?;
-                                    #value_ident
-                                }
-                            }
-                        }
-                        None => {
-                            let ty = &f.field.ty;
-                            let func = quote_spanned! { ty.span() =>
-                                #priv_::parse_helpers::parse_named_meta_item::<#ty>
-                            };
-                            quote_mixed! {
-                                #func(input, span)?
-                            }
-                        }
-                    };
+                    let call = f.to_parse_call_tokens(&inputs_expr, allowed_expr, crate_, priv_);
                     let set = quote_spanned! { f.field.ty.span() =>
                         #name = #priv_::Option::Some(#call);
                     };
@@ -745,7 +825,7 @@ impl<'f> Field<'f> {
                     quote_mixed! {
                         <#priv_::parse_helpers::Brace as #priv_::parse_helpers::ParseDelimited>::parse_delimited_with(
                             input,
-                            |input| {
+                            move |input| {
                                 #inline_expr
                             },
                         )
@@ -769,7 +849,7 @@ impl<'f> Field<'f> {
                     }),
                     Some(quote_mixed! {
                         let _mode = #crate_::ParseMode::Named(span);
-                        #priv_::parse_helpers::parse_empty(span, |input| {
+                        #priv_::parse_helpers::parse_empty(span, move |input| {
                             #inline_expr
                         })
                     }),
@@ -781,26 +861,7 @@ impl<'f> Field<'f> {
                 }).enumerate().map(|(index, (real_index, f))| {
                     let name = &names[real_index];
                     let ty = &f.field.ty;
-                    let call = match (f.is_flat(), f.with.as_ref()) {
-                        (true, Some(m)) => quote_mixed! {
-                            #m::parse_meta_flat_unnamed(inputs, #crate_::ParseMode::Unnamed, index)
-                        },
-                        (false, Some(m)) => quote_mixed! {
-                            #m::parse_meta_item(input, #crate_::ParseMode::Unnamed)
-                        },
-                        (true, None) => {
-                            let ty = quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaFlatUnnamed> };
-                            quote_mixed! {
-                                #ty::parse_meta_flat_unnamed(inputs, #crate_::ParseMode::Unnamed, index)
-                            }
-                        },
-                        (false, None) => {
-                            let ty = quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaItem> };
-                            quote_mixed! {
-                                #ty::parse_meta_item(input, #crate_::ParseMode::Unnamed)
-                            }
-                        },
-                    };
+                    let call = f.to_parse_call_tokens(&inputs_expr, allowed_expr, crate_, priv_);
                     let increment = any_flat.then(|| {
                         match f.is_flat() {
                             true => quote_mixed! {
@@ -821,7 +882,7 @@ impl<'f> Field<'f> {
                     }
                 });
                 let parse_fields = pub_fields.clone().next().is_some().then(|| {
-                    let field_count = pub_fields.clone().filter(|f| !f.is_flat()).count();
+                    let field_count = pub_fields.clone().count();
                     quote_mixed! {
                         #priv_::parse_helpers::parse_tuple_struct(inputs, #field_count, |input, inputs, i| {
                             match i {
@@ -848,7 +909,7 @@ impl<'f> Field<'f> {
                     quote_mixed! {
                         <#priv_::parse_helpers::Paren as #priv_::parse_helpers::ParseDelimited>::parse_delimited_with(
                             input,
-                            |input| {
+                            move |input| {
                                 #inline_expr
                             },
                         )
@@ -861,7 +922,7 @@ impl<'f> Field<'f> {
                     allows_empty.then(|| {
                         quote_mixed! {
                             let _mode = #crate_::ParseMode::Unnamed;
-                            #priv_::parse_helpers::parse_empty(span, |input| {
+                            #priv_::parse_helpers::parse_empty(span, move |input| {
                                 #inline_expr
                             })
                         }
@@ -894,7 +955,7 @@ impl<'f> Field<'f> {
                     quote_mixed! {
                         <#priv_::parse_helpers::Paren as #priv_::parse_helpers::ParseDelimited>::parse_delimited_with(
                             input,
-                            |input| {
+                            move |input| {
                                 #inline_expr
                             },
                         )

@@ -57,6 +57,7 @@ impl<'v> Variant<'v> {
             inline_expr: &parse_quote_mixed! { inline(&[input], _mode) },
             allowed_expr: &parse_quote_mixed! { allowed },
             transparent: self.transparent.unwrap_or(false),
+            variant: true,
             allow_unknown_fields,
         };
         let (pre, post) =
@@ -104,7 +105,7 @@ impl<'v> Variant<'v> {
             field_data,
         );
         let pre = match &self.variant.fields {
-            syn::Fields::Named(_) if mode != TokenMode::ParseMetaItem => {
+            syn::Fields::Named(_) => {
                 let field_names = Field::to_field_names_tokens(&self.fields, crate_, priv_);
                 let accepts_all = if allow_unknown_fields {
                     quote_mixed! { true }
@@ -118,7 +119,7 @@ impl<'v> Variant<'v> {
                 })
             }
             syn::Fields::Unnamed(_) => Some(quote_mixed! {
-                let mut index = 0;
+                let mut index = 0usize;
             }),
             _ => None,
         };
@@ -178,10 +179,9 @@ impl<'v> Variant<'v> {
                     #crate_::Result::Err(#priv_::parse_helpers::flag_disallowed_error(span))
                 }
             });
-            let inline_mut = (mode == TokenMode::ExtractAttributes).then(|| quote_mixed! { mut });
             quote_mixed! {
                 #pre
-                let #inline_mut inline = |inputs: &[#priv_::ParseStream<'_>], _mode: #crate_::ParseMode| {
+                let mut inline = |inputs: &[#priv_::ParseStream<'_>], _mode: #crate_::ParseMode| {
                     #inline
                 };
                 let res = match #priv_::parse_helpers::try_parse_named_meta_item(input) {
@@ -528,7 +528,10 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                         }
                         "allow_unknown_fields" => {
                             if matches!(variant.fields, syn::Fields::Unnamed(_)) {
-                                errors.push(span, "`allow_unknown_fields` not allowed on tuple variant");
+                                errors.push(
+                                    span,
+                                    "`allow_unknown_fields` not allowed on tuple variant",
+                                );
                             }
                             if allow_unknown_fields.is_some() {
                                 errors.push(span, "duplicate attribute for `allow_unknown_fields`");
