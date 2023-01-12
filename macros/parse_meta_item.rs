@@ -157,6 +157,24 @@ fn impl_for_struct(
                         #parse_flat
                     }
                 }
+
+                impl #impl_generics #crate_::ParseMetaFlatUnnamed for #struct_ident #type_generics #where_clause {
+                    #[inline]
+                    fn field_count() -> #priv_::Option<#priv_::usize> {
+                        #priv_::Option::None
+                    }
+                    #[inline]
+                    fn parse_meta_flat_unnamed<'____s, ____S>(
+                        inputs: &[____S],
+                        mode: #crate_::ParseMode,
+                        _index: #priv_::usize,
+                    ) -> #crate_::Result<Self>
+                    where
+                        ____S: #priv_::Borrow<#priv_::ParseBuffer<'____s>>,
+                    {
+                        <Self as #crate_::ParseMetaFlatNamed>::parse_meta_flat_named(inputs, mode, "", true)
+                    }
+                }
             });
         }
         (syn::Fields::Unnamed(_), Some(parse_flat)) => {
@@ -279,6 +297,24 @@ fn impl_for_enum(input: &syn::DeriveInput, errors: &Errors) -> Option<MetaDef> {
                 {
                     let span = _mode.to_full_span(inputs);
                     #parse
+                }
+            }
+
+            impl #impl_generics #crate_::ParseMetaFlatUnnamed for #enum_ident #type_generics #where_clause {
+                #[inline]
+                fn field_count() -> #priv_::Option<#priv_::usize> {
+                    #priv_::Option::None
+                }
+                #[inline]
+                fn parse_meta_flat_unnamed<'____s, ____S>(
+                    inputs: &[____S],
+                    mode: #crate_::ParseMode,
+                    _index: #priv_::usize,
+                ) -> #crate_::Result<Self>
+                where
+                    ____S: #priv_::Borrow<#priv_::ParseBuffer<'____s>>,
+                {
+                    <Self as #crate_::ParseMetaFlatNamed>::parse_meta_flat_named(inputs, mode, "", true)
                 }
             }
         }),

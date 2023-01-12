@@ -544,7 +544,21 @@ macro_rules! impl_parse_meta_item_map {
                 Brace::parse_delimited_meta_item(input, _mode)
             }
             #[inline]
-            fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], _mode: ParseMode) -> Result<Self> {
+            fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S], mode: ParseMode) -> Result<Self> {
+                <Self as ParseMetaFlatUnnamed>::parse_meta_flat_unnamed(inputs, mode, 0)
+            }
+        }
+
+        impl<$kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)?, $vp: ParseMetaItem> ParseMetaFlatUnnamed for $ty <$kp, $vp> {
+            #[inline]
+            fn field_count() -> Option<usize> {
+                None
+            }
+            fn parse_meta_flat_unnamed<'s, S: Borrow<ParseBuffer<'s>>>(
+                inputs: &[S],
+                _mode: ParseMode,
+                _index: usize
+            ) -> Result<Self> {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
                 for input in inputs {
