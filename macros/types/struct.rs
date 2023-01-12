@@ -210,9 +210,13 @@ impl<'s> Struct<'s> {
                 })
                 .unwrap();
             let ty = &field.field.ty;
-            let parse_ty = quote_spanned! { ty.span() =>
-                <#ty as #crate_::ParseMetaItem>
-            };
+            let module = field
+                .with
+                .as_ref()
+                .map(|m| quote_spanned! { m.span() => #m });
+            let parse_ty = module.clone().unwrap_or_else(|| {
+                quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaItem> }
+            });
             pre.extend(default_set);
             if matches!(orig_fields, syn::Fields::Unnamed(_)) {
                 pre.extend(quote_mixed! {
@@ -259,9 +263,9 @@ impl<'s> Struct<'s> {
 
             let mut extra_traits = Vec::new();
             if flatten_named {
-                let flat_ty = quote_spanned! { ty.span() =>
-                    <#ty as #crate_::ParseMetaFlatNamed>
-                };
+                let flat_ty = module.clone().unwrap_or_else(|| {
+                    quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaFlatNamed> }
+                });
                 extra_traits.push(quote_mixed! {
                     impl #impl_generics #crate_::ParseMetaFlatNamed for #struct_ident #type_generics #where_clause {
                         const ACCEPTS_ALL: #priv_::bool = #flat_ty::ACCEPTS_ALL;
@@ -284,9 +288,9 @@ impl<'s> Struct<'s> {
                 });
             }
             if flatten_unnamed {
-                let flat_ty = quote_spanned! { ty.span() =>
-                    <#ty as #crate_::ParseMetaFlatUnnamed>
-                };
+                let flat_ty = module.clone().unwrap_or_else(|| {
+                    quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaFlatUnnamed> }
+                });
                 extra_traits.push(quote_mixed! {
                     impl #impl_generics #crate_::ParseMetaFlatUnnamed for #struct_ident #type_generics #where_clause {
                         #[inline]
@@ -307,9 +311,9 @@ impl<'s> Struct<'s> {
                 });
             }
             if rest {
-                let rest_ty = quote_spanned! { ty.span() =>
-                    <#ty as #crate_::ParseMetaRest>
-                };
+                let rest_ty = module.clone().unwrap_or_else(|| {
+                    quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaRest> }
+                });
                 extra_traits.push(quote_mixed! {
                     impl #impl_generics #crate_::ParseMetaRest for #struct_ident #type_generics #where_clause {
                         #[inline]
@@ -325,9 +329,9 @@ impl<'s> Struct<'s> {
                 });
             }
             if append {
-                let append_ty = quote_spanned! { ty.span() =>
-                    <#ty as #crate_::ParseMetaAppend>
-                };
+                let append_ty = module.unwrap_or_else(|| {
+                    quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaAppend> }
+                });
                 extra_traits.push(quote_mixed! {
                     impl #impl_generics #crate_::ParseMetaAppend for #struct_ident #type_generics #where_clause {
                         #[inline]
@@ -434,7 +438,10 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                         }
                         "allow_unknown_fields" => {
                             if matches!(struct_.fields, syn::Fields::Unnamed(_)) {
-                                errors.push(span, "`allow_unknown_fields` not allowed on tuple struct");
+                                errors.push(
+                                    span,
+                                    "`allow_unknown_fields` not allowed on tuple struct",
+                                );
                             }
                             if allow_unknown_fields.is_some() {
                                 errors.push(span, "duplicate attribute for `allow_unknown_fields`");
