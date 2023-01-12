@@ -30,4 +30,12 @@ pub use proc_macro2::Span;
 #[doc(hidden)]
 pub use syn;
 #[doc(hidden)]
-pub use {Default, IntoIterator, Option, Vec};
+pub use {
+    std::{
+        borrow::Borrow,
+        collections::HashMap,
+        hash::{Hash, Hasher},
+        primitive,
+    },
+    AsRef, Clone, Default, Eq, IntoIterator, Option, PartialEq,
+};

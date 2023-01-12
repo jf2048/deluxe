@@ -367,6 +367,39 @@ macro_rules! define_with_collection {
             ) -> $crate::Result<$coll $(:: $colls)* <$ty>> {
                 $crate::Result::Ok($crate::Default::default())
             }
+            #[inline]
+            pub fn field_count() -> $crate::Option<$crate::primitive::usize> {
+                $crate::Option::None
+            }
+            #[inline]
+            pub fn parse_meta_flat_unnamed<'s, S: $crate::Borrow<$crate::syn::parse::ParseBuffer<'s>>>(
+                inputs: &[S],
+                mode: $crate::ParseMode,
+                index: $crate::primitive::usize
+            ) -> $crate::Result<$coll $(:: $colls)* <$ty>> {
+                $crate::Result::Ok(
+                    $crate::IntoIterator::into_iter(
+                        <$coll $(:: $colls)* <Inner> as $crate::ParseMetaFlatUnnamed>::parse_meta_flat_unnamed(inputs, mode, index)?
+                    ).map(|p| p.0).collect(),
+                )
+            }
+            #[inline]
+            pub fn parse_meta_append<'s, S, I, P>(
+                inputs: &[S],
+                paths: I,
+            ) -> $crate::Result<$coll $(:: $colls)* <$ty>>
+            where
+                S: $crate::Borrow<$crate::syn::parse::ParseBuffer<'s>>,
+                I: $crate::IntoIterator<Item = P>,
+                I::IntoIter: $crate::Clone,
+                P: $crate::AsRef<$crate::primitive::str>,
+            {
+                $crate::Result::Ok(
+                    $crate::IntoIterator::into_iter(
+                        <$coll $(:: $colls)* <Inner> as $crate::ParseMetaAppend>::parse_meta_append(inputs, paths)?
+                    ).map(|p| p.0).collect(),
+                )
+            }
         }
     };
 }
@@ -375,7 +408,8 @@ macro_rules! define_with_collection {
 ///
 /// Takes four arguments separated by commas:
 /// - The generated module. Can include attributes and a visibility specifier.
-/// - The module to use as an inner parser, relative to the new module.
+/// - The module to use as an inner key parser, relative to the new module.
+/// - The module to use as an inner value parser, relative to the new module.
 /// - The target collection type.
 ///
 /// # Example
@@ -401,9 +435,29 @@ macro_rules! define_with_map {
         $coll:ident $(:: $colls:ident)* < $key:ty, $val:ty > $(,)?
     ) => {
         $(#[$attrs])* $vis mod $mod {
-            struct Inner($key, $val);
+            struct InnerKey($key);
 
-            impl $crate::ParseMetaItem for Inner {
+            impl $crate::Eq for InnerKey where $key: $crate::Eq {}
+            impl $crate::PartialEq for InnerKey where $key: $crate::PartialEq {
+                #[inline]
+                fn eq(&self, other: &Self) -> $crate::primitive::bool {
+                    self.0.eq(&other.0)
+                }
+            }
+            impl $crate::Hash for InnerKey where $key: $crate::Hash {
+                #[inline]
+                fn hash<H: $crate::Hasher>(&self, state: &mut H) {
+                    self.0.hash(state)
+                }
+            }
+            impl $crate::Borrow<$crate::syn::Path> for InnerKey where $key: $crate::Borrow<$crate::syn::Path>  {
+                #[inline]
+                fn borrow(&self) -> &$crate::syn::Path {
+                    &self.0
+                }
+            }
+
+            impl $crate::ParseMetaItem for InnerKey {
                 #[inline]
                 fn parse_meta_item(
                     input: $crate::syn::parse::ParseStream,
@@ -411,6 +465,19 @@ macro_rules! define_with_map {
                 ) -> $crate::Result<Self> {
                     $crate::Result::Ok(Self(
                         $keysource $(::$keysources)* ::parse_meta_item(input, mode)?,
+                    ))
+                }
+            }
+
+            struct InnerValue($val);
+
+            impl $crate::ParseMetaItem for InnerValue {
+                #[inline]
+                fn parse_meta_item(
+                    input: $crate::syn::parse::ParseStream,
+                    mode: $crate::ParseMode,
+                ) -> $crate::Result<Self> {
+                    $crate::Result::Ok(Self(
                         $valsource $(::$valsources)* ::parse_meta_item(input, mode)?,
                     ))
                 }
@@ -423,8 +490,8 @@ macro_rules! define_with_map {
             ) -> $crate::Result<$coll $(:: $colls)* <$key, $val>> {
                 $crate::Result::Ok(
                     $crate::IntoIterator::into_iter(
-                        <$crate::Vec<Inner> as $crate::ParseMetaItem>::parse_meta_item(input, mode)?
-                    ).map(|p| (p.0, p.1)).collect(),
+                        <$crate::HashMap<InnerKey, InnerValue> as $crate::ParseMetaItem>::parse_meta_item(input, mode)?
+                    ).map(|(k, v)| (k.0, v.0)).collect(),
                 )
             }
             #[inline]
@@ -434,8 +501,8 @@ macro_rules! define_with_map {
             ) -> $crate::Result<$coll $(:: $colls)* <$key, $val>> {
                 $crate::Result::Ok(
                     $crate::IntoIterator::into_iter(
-                        <$crate::Vec<Inner> as $crate::ParseMetaItem>::parse_meta_item_inline(inputs, mode)?
-                    ).map(|p| (p.0, p.1)).collect(),
+                        <$crate::HashMap<InnerKey, InnerValue> as $crate::ParseMetaItem>::parse_meta_item_inline(inputs, mode)?
+                    ).map(|(k, v)| (k.0, v.0)).collect(),
                 )
             }
             #[inline]
@@ -443,6 +510,33 @@ macro_rules! define_with_map {
                 _span: $crate::Span,
             ) -> $crate::Result<$coll $(:: $colls)* <$key, $val>> {
                 $crate::Result::Ok($crate::Default::default())
+            }
+            #[inline]
+            pub fn field_count() -> $crate::Option<$crate::primitive::usize> {
+                $crate::Option::None
+            }
+            #[inline]
+            pub fn parse_meta_flat_unnamed<'s, S: $crate::Borrow<$crate::syn::parse::ParseBuffer<'s>>>(
+                inputs: &[S],
+                mode: $crate::ParseMode,
+                index: $crate::primitive::usize
+            ) -> $crate::Result<$coll $(:: $colls)* <$key, $val>> {
+                $crate::Result::Ok(
+                    $crate::IntoIterator::into_iter(
+                        <$crate::HashMap<InnerKey, InnerValue> as $crate::ParseMetaFlatUnnamed>::parse_meta_flat_unnamed(inputs, mode, index)?
+                    ).map(|(k, v)| (k.0, v.0)).collect(),
+                )
+            }
+            #[inline]
+            pub fn parse_meta_rest<'s, S: $crate::Borrow<$crate::syn::parse::ParseBuffer<'s>>>(
+                inputs: &[S],
+                exclude: &[&$crate::primitive::str],
+            ) -> $crate::Result<$coll $(:: $colls)* <$key, $val>> {
+                $crate::Result::Ok(
+                    $crate::IntoIterator::into_iter(
+                        <$crate::HashMap<InnerKey, InnerValue> as $crate::ParseMetaRest>::parse_meta_rest(inputs, exclude)?
+                    ).map(|(k, v)| (k.0, v.0)).collect(),
+                )
             }
         }
     };
