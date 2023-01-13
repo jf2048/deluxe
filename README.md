@@ -372,7 +372,6 @@ pub fn derive_my_object(item: TokenStream) -> TokenStream {
 }
 ```
 
-Container fields can also be mutable references when using `ExtractAttributes`.
 To support both extracting and parsing, a container field can also be a value
 type. In that case, the container will be cloned into the structure.
 

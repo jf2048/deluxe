@@ -363,10 +363,8 @@
 //! }
 //! ```
 //!
-//! Container fields can also be mutable references when using
-//! [`ExtractAttributes`](macro@ExtractAttributes). To support both extracting and parsing, a
-//! container field can also be a value type. In that case, the container will be cloned into the
-//! structure.
+//! To support both extracting and parsing, a container field can also be a value type. In that
+//! case, the container will be cloned into the structure.
 
 #![deny(missing_docs)]
 
