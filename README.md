@@ -2,7 +2,7 @@
 
 [Documentation]: https://docs.rs/deluxe/badge.svg
 [docs]: https://docs.rs/deluxe
-[Build Status]: https://github.com/jf2048/deluxe/workflows/ci.yml/badge.svg?branch=main
+[Build Status]: https://github.com/jf2048/deluxe/workflows/ci/badge.svg?branch=main
 [actions]: https://github.com/jf2048/deluxe/actions?query=branch%3Amain
 [Latest Version]: https://img.shields.io/crates/v/deluxe.svg
 [crates.io]: https://crates.io/crates/deluxe
