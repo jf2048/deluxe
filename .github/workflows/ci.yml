@@ -1,15 +1,19 @@
+name: ci
+
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
 
-name: CI
+env:
+  RUSTFLAGS: -Dwarnings
 
 jobs:
   build_and_test:
     name: Deluxe
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
@@ -22,6 +26,7 @@ jobs:
   rustfmt:
     name: Deluxe Rustfmt
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
@@ -38,6 +43,7 @@ jobs:
   clippy:
     name: Deluxe Clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
@@ -49,4 +55,4 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --workspace -- -D warnings
+          args: --workspace
