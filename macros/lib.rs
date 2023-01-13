@@ -141,7 +141,7 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///
 ///   Parses a struct with one field as if it were the field. Can only be used on a struct with a
 ///   single parseable field. Analogous to `#[repr(transparent)]`. The struct can still contain
-///   fields that are [`skip`](#deluxeskip), as those will be ignored by `transparent`.
+///   fields that are [`skip`](#deluxeskip-1), as those will be ignored by `transparent`.
 ///
 /// - ##### `#[deluxe(transparent(flatten_named)]`
 ///
@@ -186,7 +186,7 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///
 ///   Parses a variant with one field as if it were the field. Can only be used on a variant with a
 ///   single parseable field. Analogous to `#[repr(transparent)]`. The variant can still contain
-///   fields that are [`skip`](#deluxeskip), as those will be ignored by `transparent`.
+///   fields that are [`skip`](#deluxeskip-1), as those will be ignored by `transparent`.
 ///
 /// - ##### `#[deluxe(flatten)]`
 ///
@@ -199,6 +199,10 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///   A single variant with no parseable fields can also be flattened. In that case, that variant
 ///   will always be parsed as the default variant. Setting a default variant in this way is
 ///   mutually exclusive with using [`#[deluxe(default)]`](#deluxedefault) on the enum.
+///
+/// - ##### `#[deluxe(skip)]`
+///
+///   Skips this variant from parsing entirely.
 ///
 /// - ##### `#[deluxe(allow_unknown_fields)]`
 ///

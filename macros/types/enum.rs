@@ -35,10 +35,11 @@ impl<'e> Enum<'e> {
     }
     pub fn to_accepts_all_tokens(&self, crate_: &syn::Path) -> Option<TokenStream> {
         if self.allow_unknown_fields.unwrap_or(false)
-            || self
-                .variants
-                .iter()
-                .any(|v| v.flatten.unwrap_or(false) && v.allow_unknown_fields.unwrap_or(false))
+            || self.variants.iter().any(|v| {
+                !v.is_skipped()
+                    && v.flatten.unwrap_or(false)
+                    && v.allow_unknown_fields.unwrap_or(false)
+            })
         {
             return Some(quote_mixed! { true });
         }

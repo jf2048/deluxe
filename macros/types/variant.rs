@@ -11,6 +11,7 @@ pub struct Variant<'v> {
     pub idents: Vec<syn::Ident>,
     pub flatten: Option<bool>,
     pub transparent: Option<bool>,
+    pub skip: Option<SpannedValue<bool>>,
     pub allow_unknown_fields: Option<bool>,
 }
 
@@ -18,12 +19,17 @@ impl<'v> Variant<'v> {
     #[inline]
     pub fn field_names() -> &'static [&'static str] {
         &[
+            "skip",
             "rename",
             "flatten",
             "alias",
             "transparent",
             "allow_unknown_fields",
         ]
+    }
+    #[inline]
+    pub fn is_skipped(&self) -> bool {
+        self.skip.map(|v| *v).unwrap_or(false)
     }
     pub(super) fn field_key(&self) -> BTreeSet<BTreeSet<String>> {
         self.fields
@@ -216,25 +222,29 @@ impl<'v> Variant<'v> {
         variants: &[Self],
         all_keys: &[Option<BTreeSet<BTreeSet<String>>>],
     ) -> TokenStream {
-        let msgs = variants.iter().enumerate().map(|(i, v)| {
-            if v.flatten.unwrap_or(false) {
-                let keys = all_keys[i].as_ref().unwrap();
-                if keys.is_empty() {
-                    let ident = &v.variant.ident;
-                    let msg = format!("fields from `{ident}`");
-                    quote_mixed! { &[&[#msg]] }
+        let msgs = variants
+            .iter()
+            .filter(|v| !v.is_skipped())
+            .enumerate()
+            .map(|(i, v)| {
+                if v.flatten.unwrap_or(false) {
+                    let keys = all_keys[i].as_ref().unwrap();
+                    if keys.is_empty() {
+                        let ident = &v.variant.ident;
+                        let msg = format!("fields from `{ident}`");
+                        quote_mixed! { &[&[#msg]] }
+                    } else {
+                        let key_exprs = keys.iter().map(|idents| {
+                            let idents = idents.iter().map(|i| format!("`{i}`"));
+                            quote_mixed! { &[#(#idents),*] }
+                        });
+                        quote_mixed! { &[#(#key_exprs),*] }
+                    }
                 } else {
-                    let key_exprs = keys.iter().map(|idents| {
-                        let idents = idents.iter().map(|i| format!("`{i}`"));
-                        quote_mixed! { &[#(#idents),*] }
-                    });
-                    quote_mixed! { &[#(#key_exprs),*] }
+                    let ident = v.idents.first().map(|i| format!("`{i}`"));
+                    quote_mixed! { &[&[#ident]] }
                 }
-            } else {
-                let ident = v.idents.first().map(|i| format!("`{i}`"));
-                quote_mixed! { &[&[#ident]] }
-            }
-        });
+            });
         quote_mixed! { [#(#msgs,)*] }
     }
     pub(super) fn to_parsing_tokens(
@@ -247,7 +257,7 @@ impl<'v> Variant<'v> {
         let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
         let priv_ = &priv_path;
         let variant_matches = variants.iter().filter_map(|v| {
-            if v.flatten.unwrap_or(false) {
+            if v.flatten.unwrap_or(false) || v.is_skipped() {
                 return None;
             }
             let idents = v.idents.iter().map(|i| i.to_string()).collect::<Vec<_>>();
@@ -273,15 +283,19 @@ impl<'v> Variant<'v> {
                 },
             })
         });
-        let any_flat = variants.iter().any(|v| v.flatten.unwrap_or(false));
+        let any_flat = variants
+            .iter()
+            .any(|v| v.flatten.unwrap_or(false) && !v.is_skipped());
         let paths_ident = any_flat.then(|| syn::Ident::new("paths", Span::mixed_site()));
         let paths_ident = paths_ident.as_ref().into_iter().collect::<Vec<_>>();
         let all_flat_keys = variants
             .iter()
+            .filter(|v| !v.is_skipped())
             .map(|v| v.flatten.unwrap_or(false).then(|| v.field_key()))
             .collect::<Vec<_>>();
         let mut flat_matches = variants
             .iter()
+            .filter(|v| !v.is_skipped())
             .enumerate()
             .filter_map(|(i, v)| {
                 if !v.flatten.unwrap_or(false) {
@@ -487,6 +501,7 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                 let mut flatten = None;
                 let mut rename = None;
                 let mut transparent = None;
+                let mut skip = None;
                 let mut allow_unknown_fields = None;
                 let fields = variant
                     .fields
@@ -574,6 +589,12 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                                 idents.push(alias);
                             }
                         }
+                        "skip" => {
+                            if skip.is_some() {
+                                errors.push(span, "duplicate attribute for `skip`");
+                            }
+                            skip = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                        }
                         _ => {
                             parse_helpers::check_unknown_attribute(
                                 path,
@@ -642,6 +663,7 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                     idents: idents.into_iter().collect(),
                     flatten: flatten.map(|v| *v),
                     transparent: transparent.map(|v| *v),
+                    skip,
                     allow_unknown_fields,
                 })
             },

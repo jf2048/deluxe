@@ -527,6 +527,9 @@ enum MyEnum {
         #[deluxe(flatten)]
         named: MyFlatNamed,
     },
+    #[deluxe(skip)]
+    #[allow(dead_code)]
+    K,
 }
 
 #[test]
@@ -604,6 +607,10 @@ fn parse_enum() {
     ::std::assert_eq!(
         parse(q! { { x() } }).unwrap_err_string(),
         "unknown field `x`, expected one of `a`, `b`, `c`, `d`, `e`, `f`, `g`, `h`, `i`, fields from `FlatJ`",
+    );
+    ::std::assert_eq!(
+        parse(q! { { k } }).unwrap_err_string(),
+        "unknown field `k`, expected one of `a`, `b`, `c`, `d`, `e`, `f`, `g`, `h`, `i`, fields from `FlatJ`",
     );
 }
 
