@@ -121,19 +121,32 @@
 //! #[derive(deluxe::ExtractAttributes)]
 //! #[deluxe(attributes(my_object))]
 //! struct MyObject {
-//!     #[deluxe(alias = object_id)] // can be specified with key `id` or `object_id`
+//!     // can be specified with key `id` or `object_id`
+//!     #[deluxe(alias = object_id)]
 //!     id: u64,
-//!     #[deluxe(default)] // field is optional, defaults to `Default::default` if not present
+//!
+//!     // field is optional, defaults to `Default::default` if not present
+//!     #[deluxe(default)]
 //!     count: u64,
-//!     #[deluxe(default = String::from("Empty"))] // defaults to "Empty" if not present
+//!
+//!     // defaults to "Empty" if not present
+//!     #[deluxe(default = String::from("Empty"))]
 //!     contents: String,
-//!     #[deluxe(rename = name)] // can be specified only with key `name`
+//!
+//!     // can be specified only with key `name`
+//!     #[deluxe(rename = name)]
 //!     s: String,
-//!     #[deluxe(skip)] // skipped during parsing entirely
+//!
+//!     // skipped during parsing entirely
+//!     #[deluxe(skip)]
 //!     internal_flag: bool,
-//!     #[deluxe(append, rename = expr)] // appends any extra fields with the key `expr` to the Vec
+//!
+//!     // appends any extra fields with the key `expr` to the Vec
+//!     #[deluxe(append, rename = expr)]
 //!     exprs: Vec<syn::Expr>,
-//!     #[deluxe(rest)] // adds any unknown keys to the hash map
+//!
+//!     // adds any unknown keys to the hash map
+//!     #[deluxe(rest)]
 //!     rest: std::collections::HashMap<syn::Path, syn::Expr>,
 //! }
 //! ```
