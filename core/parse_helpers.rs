@@ -274,7 +274,7 @@ macro_rules! parse_named_meta_item_with {
             $input,
             $name_span,
             $($path)* :: parse_meta_item,
-            $($path)* :: parse_meta_item_inline,
+            |inputs, mode| $($path)* :: parse_meta_item_inline(inputs, mode),
             $($path)* :: parse_meta_item_flag,
         )
     };

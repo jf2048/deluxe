@@ -137,8 +137,9 @@ pub mod ____private {
 
 #[doc(hidden)]
 pub use deluxe_core::{
-    parse_named_meta_item_with, ContainerFrom, Errors, ParseMetaAppend, ParseMetaFlatNamed,
-    ParseMetaFlatUnnamed, ParseMetaRest, ParseMode,
+    define_with_collection, define_with_map, define_with_optional, parse_named_meta_item_with,
+    ContainerFrom, Errors, ParseMetaAppend, ParseMetaFlatNamed, ParseMetaFlatUnnamed,
+    ParseMetaRest, ParseMode,
 };
 pub use deluxe_core::{
     with, Error, ExtractAttributes, HasAttributes, ParseAttributes, ParseMetaItem, Result,

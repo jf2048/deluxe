@@ -654,6 +654,58 @@ struct StructWith {
     str_int: i32,
 }
 
+::deluxe::define_with_optional!(
+    pub mod custom_int_option,
+    ::deluxe::with::from_str,
+    i32,
+);
+::deluxe::define_with_collection!(
+    pub mod custom_int_vec,
+    ::deluxe::with::from_str,
+    ::std::vec::Vec<i32>,
+);
+
+::deluxe::define_with_map!(
+    pub mod custom_int_map,
+    ::deluxe::with::mod_path,
+    ::deluxe::with::from_str,
+    ::std::collections::HashMap<::syn::Path, i32>,
+);
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+    Default,
+)]
+#[deluxe(transparent(flatten_unnamed, append))]
+struct StructWithTransparent {
+    #[deluxe(with = custom_int_vec)]
+    int_vec: ::std::vec::Vec<i32>,
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+struct StructWithExtended {
+    #[deluxe(default, with = custom_int_option)]
+    int: ::std::option::Option<i32>,
+    #[deluxe(with = custom_int_vec)]
+    int_vec: ::std::vec::Vec<i32>,
+    #[deluxe(append, rename = int_append, with = custom_int_vec)]
+    int_vec2: ::std::vec::Vec<i32>,
+    #[deluxe(append, default)]
+    int_vec3: StructWithTransparent,
+    #[deluxe(rest, with = custom_int_map)]
+    int_map: ::std::collections::HashMap<::syn::Path, i32>,
+}
+
 #[test]
 fn parse_with() {
     use ::std::prelude::v1::*;
@@ -669,6 +721,59 @@ fn parse_with() {
     ::std::assert_eq!(
         parse(q! { { normal = "abc", str_int = 123 } }).unwrap_err_string(),
         "expected string literal"
+    );
+
+    let make_path = |s| ::syn::parse_str::<::syn::Path>(s).unwrap();
+    let parse = parse_meta::<StructWithExtended>;
+    ::std::assert_eq!(
+        parse(q! { { int = -4, int_vec = ["1", "2"] } }).unwrap_err_string(),
+        "expected string literal"
+    );
+    ::std::assert_eq!(
+        parse(q! { { int_vec = [1] } }).unwrap_err_string(),
+        "expected string literal"
+    );
+    ::std::assert_eq!(
+        parse(q! { { int = "-4", int_vec = ["1", "2"] } }).unwrap(),
+        StructWithExtended {
+            int: Some(-4),
+            int_vec: ::std::vec![1, 2],
+            int_vec2: ::std::vec![],
+            int_vec3: Default::default(),
+            int_map: [].into()
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { int_vec = [], int_append = "1", int_append = "2" } }).unwrap(),
+        StructWithExtended {
+            int: None,
+            int_vec: ::std::vec![],
+            int_vec2: ::std::vec![1, 2],
+            int_vec3: Default::default(),
+            int_map: [].into()
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { int_vec = [], int_append = "1", unknown = "2", hello = "3" } }).unwrap(),
+        StructWithExtended {
+            int: None,
+            int_vec: ::std::vec![],
+            int_vec2: ::std::vec![1],
+            int_vec3: Default::default(),
+            int_map: [(make_path("unknown"), 2), (make_path("hello"), 3)].into()
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { int_vec = [], int_vec3 = "1", int_vec3 = "2" } }).unwrap(),
+        StructWithExtended {
+            int: None,
+            int_vec: ::std::vec![],
+            int_vec2: ::std::vec![],
+            int_vec3: StructWithTransparent {
+                int_vec: ::std::vec![1, 2],
+            },
+            int_map: [].into()
+        }
     );
 }
 

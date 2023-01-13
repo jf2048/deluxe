@@ -37,5 +37,5 @@ pub use {
         hash::{Hash, Hasher},
         primitive,
     },
-    AsRef, Clone, Default, Eq, IntoIterator, Option, PartialEq,
+    AsRef, Clone, Default, Eq, IntoIterator, Iterator, Option, PartialEq,
 };

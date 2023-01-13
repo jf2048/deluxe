@@ -1,39 +1,14 @@
-//! Custom parsing helpers for `#[deluxe(with = "...")]`.
-
-/// Helpers for parsing any type that implements [`ParseMetaItem`](crate::ParseMetaItem) as itself.
-///
-/// Only meant to be used from [`define_with_map`].
-pub mod identity {
-    #![allow(missing_docs)]
-    use crate::{ParseMetaItem, ParseMode, Result};
-    use syn::parse::ParseStream;
-
-    #[inline]
-    pub fn parse_meta_item<T: ParseMetaItem>(input: ParseStream, mode: ParseMode) -> Result<T> {
-        T::parse_meta_item(input, mode)
-    }
-    #[inline]
-    pub fn parse_meta_item_inline<T: ParseMetaItem>(
-        inputs: &[ParseStream],
-        mode: ParseMode,
-    ) -> Result<T> {
-        T::parse_meta_item_inline(inputs, mode)
-    }
-    #[inline]
-    pub fn parse_meta_item_flag<T: ParseMetaItem>(span: proc_macro2::Span) -> Result<T> {
-        T::parse_meta_item_flag(span)
-    }
-}
+//! Custom parsing helpers for `#[deluxe(with = ...)]`.
 
 /// Helpers for parsing any type that implements [`std::str::FromStr`].
 ///
 /// Can be used on a field by specifying the module, like
-/// `#[deluxe(with = "deluxe::with::from_str")]`
+/// `#[deluxe(with = deluxe::with::from_str)]`
 pub mod from_str {
     #![allow(missing_docs)]
     use crate::{Error, ParseMode, Result};
-    use std::str::FromStr;
-    use syn::parse::ParseStream;
+    use std::{borrow::Borrow, str::FromStr};
+    use syn::parse::{ParseBuffer, ParseStream};
 
     #[inline]
     pub fn parse_meta_item<T: FromStr>(input: ParseStream, _mode: ParseMode) -> Result<T>
@@ -44,7 +19,10 @@ pub mod from_str {
         T::from_str(&s.value()).map_err(|e| Error::new_spanned(s, e.to_string()))
     }
     #[inline]
-    pub fn parse_meta_item_inline<T: FromStr>(inputs: &[ParseStream], mode: ParseMode) -> Result<T>
+    pub fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>, T: FromStr>(
+        inputs: &[S],
+        mode: ParseMode,
+    ) -> Result<T>
     where
         T::Err: std::fmt::Display,
     {
@@ -59,12 +37,12 @@ pub mod from_str {
 /// Helpers for parsing any type that implements [`std::str::FromStr`] and [`Default`].
 ///
 /// Can be used on a field by specifying the module, like
-/// `#[deluxe(with = "deluxe::with::from_str_default")]`
+/// `#[deluxe(with = deluxe::with::from_str_default)]`
 pub mod from_str_default {
     #![allow(missing_docs)]
     use crate::{ParseMode, Result};
-    use std::str::FromStr;
-    use syn::parse::ParseStream;
+    use std::{borrow::Borrow, str::FromStr};
+    use syn::parse::{ParseBuffer, ParseStream};
 
     #[inline]
     pub fn parse_meta_item<T: FromStr>(input: ParseStream, mode: ParseMode) -> Result<T>
@@ -74,7 +52,10 @@ pub mod from_str_default {
         super::from_str::parse_meta_item(input, mode)
     }
     #[inline]
-    pub fn parse_meta_item_inline<T: FromStr>(inputs: &[ParseStream], mode: ParseMode) -> Result<T>
+    pub fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>, T: FromStr>(
+        inputs: &[S],
+        mode: ParseMode,
+    ) -> Result<T>
     where
         T::Err: std::fmt::Display,
     {
@@ -86,21 +67,26 @@ pub mod from_str_default {
     }
 }
 
-/// Helpers for parsing a module path using [`syn::Path::parse_mod_style`].
+/// Helpers for parsing a module path using
+/// [`syn::Path::parse_mod_style`](::syn::Path::parse_mod_style).
 ///
 /// The field should be a `syn::Path`. Can be used on a field by specifying the module, like
-/// `#[deluxe(with = "deluxe::with::mod_path")]`
+/// `#[deluxe(with = deluxe::with::mod_path)]`
 pub mod mod_path {
     #![allow(missing_docs)]
     use crate::{ParseMode, Result};
-    use syn::parse::ParseStream;
+    use std::borrow::Borrow;
+    use syn::parse::{ParseBuffer, ParseStream};
 
     #[inline]
     pub fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<syn::Path> {
         input.call(syn::Path::parse_mod_style)
     }
     #[inline]
-    pub fn parse_meta_item_inline(inputs: &[ParseStream], mode: ParseMode) -> Result<syn::Path> {
+    pub fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        mode: ParseMode,
+    ) -> Result<syn::Path> {
         crate::parse_helpers::parse_first(inputs, mode, |input| parse_meta_item(input, mode))
     }
     #[inline]
@@ -113,11 +99,12 @@ pub mod mod_path {
 /// of a quoted string first.
 ///
 /// Can be used on a field by specifying the module, like
-/// `#[deluxe(with = "deluxe::with::quoted")]`
+/// `#[deluxe(with = deluxe::with::quoted)]`
 pub mod quoted {
     #![allow(missing_docs)]
     use crate::{Error, Errors, ParseMetaItem, ParseMode, Result};
-    use syn::parse::ParseStream;
+    use std::borrow::Borrow;
+    use syn::parse::{ParseBuffer, ParseStream};
 
     pub fn parse_meta_item<T: ParseMetaItem>(input: ParseStream, mode: ParseMode) -> Result<T> {
         let v = input.parse::<syn::LitStr>()?;
@@ -134,8 +121,8 @@ pub mod quoted {
         })
     }
     #[inline]
-    pub fn parse_meta_item_inline<T: ParseMetaItem>(
-        inputs: &[ParseStream],
+    pub fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>, T: ParseMetaItem>(
+        inputs: &[S],
         mode: ParseMode,
     ) -> Result<T> {
         crate::parse_helpers::parse_first(inputs, mode, |input| parse_meta_item(input, mode))
@@ -150,11 +137,12 @@ pub mod quoted {
 /// parsed out of a quoted string first.
 ///
 /// Can be used on a field by specifying the module, like
-/// `#[deluxe(with = "deluxe::with::maybe_quoted")]`
+/// `#[deluxe(with = deluxe::with::maybe_quoted)]`
 pub mod maybe_quoted {
     #![allow(missing_docs)]
     use crate::{ParseMetaItem, ParseMode, Result};
-    use syn::parse::ParseStream;
+    use std::borrow::Borrow;
+    use syn::parse::{ParseBuffer, ParseStream};
 
     #[inline]
     pub fn parse_meta_item<T: ParseMetaItem>(input: ParseStream, mode: ParseMode) -> Result<T> {
@@ -165,8 +153,8 @@ pub mod maybe_quoted {
         }
     }
     #[inline]
-    pub fn parse_meta_item_inline<T: ParseMetaItem>(
-        inputs: &[ParseStream],
+    pub fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>, T: ParseMetaItem>(
+        inputs: &[S],
         mode: ParseMode,
     ) -> Result<T> {
         crate::parse_helpers::parse_first(inputs, mode, |input| parse_meta_item(input, mode))
@@ -177,20 +165,24 @@ pub mod maybe_quoted {
     }
 }
 
-/// Helpers for parsing any type that implements [`syn::parse::Parse`].
+/// Helpers for parsing any type that implements [`syn::parse::Parse`](::syn::parse::Parse).
 ///
-/// Can be used on a field by specifying the module, like `#[deluxe(with = "deluxe::with::syn")]`
+/// Can be used on a field by specifying the module, like `#[deluxe(with = deluxe::with::syn)]`
 pub mod syn {
     #![allow(missing_docs)]
     use crate::{ParseMode, Result};
-    use syn::parse::{Parse, ParseStream};
+    use std::borrow::Borrow;
+    use syn::parse::{Parse, ParseBuffer, ParseStream};
 
     #[inline]
     pub fn parse_meta_item<T: Parse>(input: ParseStream, _mode: ParseMode) -> Result<T> {
         input.parse::<T>()
     }
     #[inline]
-    pub fn parse_meta_item_inline<T: Parse>(inputs: &[ParseStream], mode: ParseMode) -> Result<T> {
+    pub fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>, T: Parse>(
+        inputs: &[S],
+        mode: ParseMode,
+    ) -> Result<T> {
         crate::parse_helpers::parse_first(inputs, mode, |input| parse_meta_item(input, mode))
     }
     #[inline]
@@ -199,15 +191,16 @@ pub mod syn {
     }
 }
 
-/// Helpers for parsing any type that implements [`syn::parse::Parse`] parsed out of a quoted
-/// string first.
+/// Helpers for parsing any type that implements [`syn::parse::Parse`](::syn::parse::Parse) parsed
+/// out of a quoted string first.
 ///
 /// Can be used on a field by specifying the module, like
-/// `#[deluxe(with = "deluxe::with::syn_quoted")]`
+/// `#[deluxe(with = deluxe::with::syn_quoted)]`
 pub mod syn_quoted {
     #![allow(missing_docs)]
     use crate::{Error, Errors, ParseMode, Result};
-    use syn::parse::{Parse, ParseStream};
+    use std::borrow::Borrow;
+    use syn::parse::{Parse, ParseBuffer, ParseStream};
 
     pub fn parse_meta_item<T: Parse>(input: ParseStream, _mode: ParseMode) -> Result<T> {
         let v = input.parse::<syn::LitStr>()?;
@@ -220,7 +213,10 @@ pub mod syn_quoted {
         })
     }
     #[inline]
-    pub fn parse_meta_item_inline<T: Parse>(inputs: &[ParseStream], mode: ParseMode) -> Result<T> {
+    pub fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>, T: Parse>(
+        inputs: &[S],
+        mode: ParseMode,
+    ) -> Result<T> {
         crate::parse_helpers::parse_first(inputs, mode, |input| parse_meta_item(input, mode))
     }
     #[inline]
@@ -229,7 +225,7 @@ pub mod syn_quoted {
     }
 }
 
-/// Generates a module for parsing an optional value using `#[deluxe(with = "...")].
+/// Generates a module for parsing an optional value using `#[deluxe(with = ...)].
 ///
 /// Takes three arguments separated by commas:
 /// - The generated module. Can include attributes and a visibility specifier.
@@ -239,7 +235,7 @@ pub mod syn_quoted {
 /// # Example
 ///
 /// Defines a new module named `mod_path_optional` that parses an [`Option`] using
-/// [`with::mod_path`].
+/// [`with::mod_path`](self::mod_path).
 ///
 /// ```
 /// deluxe_core::define_with_optional!(
@@ -252,7 +248,7 @@ pub mod syn_quoted {
 macro_rules! define_with_optional {
     (
         $(#[$attrs:meta])* $vis:vis mod $mod:ident,
-        $source:ident $(:: $sources:ident)*,
+        $($path:ident)? $(:: $path_rest:ident)*,
         $ty:ty $(,)?
     ) => {
         $(#[$attrs])* $vis mod $mod {
@@ -265,7 +261,7 @@ macro_rules! define_with_optional {
                     input: $crate::syn::parse::ParseStream,
                     mode: $crate::ParseMode,
                 ) -> $crate::Result<Self> {
-                    $crate::Result::Ok(Self($source $(::$sources)* ::parse_meta_item(input, mode)?))
+                    $crate::Result::Ok(Self($($path)? $(::$path_rest)* ::parse_meta_item(input, mode)?))
                 }
             }
 
@@ -280,8 +276,8 @@ macro_rules! define_with_optional {
                 )
             }
             #[inline]
-            pub fn parse_meta_item_inline(
-                inputs: &[$crate::syn::parse::ParseStream],
+            pub fn parse_meta_item_inline<'s, S: $crate::Borrow<$crate::syn::parse::ParseBuffer<'s>>>(
+                inputs: &[S],
                 mode: $crate::ParseMode,
             ) -> $crate::Result<$crate::Option<$ty>> {
                 $crate::Result::Ok(
@@ -299,7 +295,7 @@ macro_rules! define_with_optional {
     };
 }
 
-/// Generates a module for parsing a collection using `#[deluxe(with = "...")].
+/// Generates a module for parsing a collection using `#[deluxe(with = ...)].
 ///
 /// Takes three arguments separated by commas:
 /// - The generated module. Can include attributes and a visibility specifier.
@@ -309,7 +305,7 @@ macro_rules! define_with_optional {
 /// # Example
 ///
 /// Defines a new module named `mod_path_vec` that parses a [`Vec`] of paths using
-/// [`with::mod_path`].
+/// [`with::mod_path`](self::mod_path).
 ///
 /// ```
 /// deluxe_core::define_with_collection!(
@@ -322,8 +318,8 @@ macro_rules! define_with_optional {
 macro_rules! define_with_collection {
     (
         $(#[$attrs:meta])* $vis:vis mod $mod:ident,
-        $source:ident $(:: $sources:ident)*,
-        $coll:ident $(:: $colls:ident)* < $ty:ty > $(,)?
+        $($path:ident)? $(:: $path_rest:ident)*,
+        $($coll:ident)? $(:: $colls:ident)* < $ty:ty > $(,)?
     ) => {
         $(#[$attrs])* $vis mod $mod {
             #[repr(transparent)]
@@ -335,7 +331,7 @@ macro_rules! define_with_collection {
                     input: $crate::syn::parse::ParseStream,
                     mode: $crate::ParseMode,
                 ) -> $crate::Result<Self> {
-                    $crate::Result::Ok(Self($source $(::$sources)* ::parse_meta_item(input, mode)?))
+                    $crate::Result::Ok(Self($($path)? $(::$path_rest)* ::parse_meta_item(input, mode)?))
                 }
             }
 
@@ -343,28 +339,38 @@ macro_rules! define_with_collection {
             pub fn parse_meta_item(
                 input: $crate::syn::parse::ParseStream,
                 mode: $crate::ParseMode,
-            ) -> $crate::Result<$coll $(:: $colls)* <$ty>> {
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$ty>> {
                 $crate::Result::Ok(
-                    $crate::IntoIterator::into_iter(
-                        <$coll $(:: $colls)* <Inner> as $crate::ParseMetaItem>::parse_meta_item(input, mode)?
-                    ).map(|p| p.0).collect(),
+                    $crate::Iterator::collect(
+                        $crate::Iterator::map(
+                            $crate::IntoIterator::into_iter(
+                                <$($coll)? $(:: $colls)* <Inner> as $crate::ParseMetaItem>::parse_meta_item(input, mode)?
+                            ),
+                            |p| p.0,
+                        ),
+                    )
                 )
             }
             #[inline]
-            pub fn parse_meta_item_inline(
-                inputs: &[$crate::syn::parse::ParseStream],
+            pub fn parse_meta_item_inline<'s, S: $crate::Borrow<$crate::syn::parse::ParseBuffer<'s>>>(
+                inputs: &[S],
                 mode: $crate::ParseMode,
-            ) -> $crate::Result<$coll $(:: $colls)* <$ty>> {
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$ty>> {
                 $crate::Result::Ok(
-                    $crate::IntoIterator::into_iter(
-                        <$coll $(:: $colls)* <Inner> as $crate::ParseMetaItem>::parse_meta_item_inline(inputs, mode)?
-                    ).map(|p| p.0).collect(),
+                    $crate::Iterator::collect(
+                        $crate::Iterator::map(
+                            $crate::IntoIterator::into_iter(
+                                <$($coll)? $(:: $colls)* <Inner> as $crate::ParseMetaItem>::parse_meta_item_inline(inputs, mode)?
+                            ),
+                            |p| p.0,
+                        ),
+                    )
                 )
             }
             #[inline]
             pub fn parse_meta_item_flag(
                 _span: $crate::Span,
-            ) -> $crate::Result<$coll $(:: $colls)* <$ty>> {
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$ty>> {
                 $crate::Result::Ok($crate::Default::default())
             }
             #[inline]
@@ -376,18 +382,23 @@ macro_rules! define_with_collection {
                 inputs: &[S],
                 mode: $crate::ParseMode,
                 index: $crate::primitive::usize
-            ) -> $crate::Result<$coll $(:: $colls)* <$ty>> {
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$ty>> {
                 $crate::Result::Ok(
-                    $crate::IntoIterator::into_iter(
-                        <$coll $(:: $colls)* <Inner> as $crate::ParseMetaFlatUnnamed>::parse_meta_flat_unnamed(inputs, mode, index)?
-                    ).map(|p| p.0).collect(),
+                    $crate::Iterator::collect(
+                        $crate::Iterator::map(
+                            $crate::IntoIterator::into_iter(
+                                <$($coll)? $(:: $colls)* <Inner> as $crate::ParseMetaFlatUnnamed>::parse_meta_flat_unnamed(inputs, mode, index)?
+                            ),
+                            |p| p.0,
+                        ),
+                    )
                 )
             }
             #[inline]
             pub fn parse_meta_append<'s, S, I, P>(
                 inputs: &[S],
                 paths: I,
-            ) -> $crate::Result<$coll $(:: $colls)* <$ty>>
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$ty>>
             where
                 S: $crate::Borrow<$crate::syn::parse::ParseBuffer<'s>>,
                 I: $crate::IntoIterator<Item = P>,
@@ -395,16 +406,21 @@ macro_rules! define_with_collection {
                 P: $crate::AsRef<$crate::primitive::str>,
             {
                 $crate::Result::Ok(
-                    $crate::IntoIterator::into_iter(
-                        <$coll $(:: $colls)* <Inner> as $crate::ParseMetaAppend>::parse_meta_append(inputs, paths)?
-                    ).map(|p| p.0).collect(),
+                    $crate::Iterator::collect(
+                        $crate::Iterator::map(
+                            $crate::IntoIterator::into_iter(
+                                <$($coll)? $(:: $colls)* <Inner> as $crate::ParseMetaAppend>::parse_meta_append(inputs, paths)?
+                            ),
+                            |p| p.0,
+                        ),
+                    )
                 )
             }
         }
     };
 }
 
-/// Generates a module for parsing a map collection using `#[deluxe(with = "...")].
+/// Generates a module for parsing a map collection using `#[deluxe(with = ...)].
 ///
 /// Takes four arguments separated by commas:
 /// - The generated module. Can include attributes and a visibility specifier.
@@ -415,24 +431,24 @@ macro_rules! define_with_collection {
 /// # Example
 ///
 /// Defines a new module named `mod_path_hashmap` that parses a
-/// [`HashMap`](std::collections::HashMap) mapping paths to paths using [`with::mod_path`] for both
-/// the key and the value.
+/// [`HashMap`](std::collections::HashMap) mapping paths to quoted expressions using
+/// [`with::mod_path`](self::mod_path) for the key.
 ///
 /// ```
 /// deluxe_core::define_with_map!(
 ///     pub mod mod_path_hashmap,
 ///     deluxe_core::with::mod_path,
-///     deluxe_core::with::mod_path,
-///     std::collections::HashMap<syn::Path, syn::Path>
+///     deluxe_core::with::quoted,
+///     std::collections::HashMap<syn::Path, syn::Expr>
 /// );
 /// ```
 #[macro_export]
 macro_rules! define_with_map {
     (
         $(#[$attrs:meta])* $vis:vis mod $mod:ident,
-        $keysource:ident $(:: $keysources:ident)*,
-        $valsource:ident $(:: $valsources:ident)*,
-        $coll:ident $(:: $colls:ident)* < $key:ty, $val:ty > $(,)?
+        $($key_path:ident)? $(:: $key_path_rest:ident)*,
+        $($value_path:ident)? $(:: $value_path_rest:ident)*,
+        $($coll:ident)? $(:: $colls:ident)* < $key:ty, $val:ty > $(,)?
     ) => {
         $(#[$attrs])* $vis mod $mod {
             struct InnerKey($key);
@@ -464,7 +480,7 @@ macro_rules! define_with_map {
                     mode: $crate::ParseMode,
                 ) -> $crate::Result<Self> {
                     $crate::Result::Ok(Self(
-                        $keysource $(::$keysources)* ::parse_meta_item(input, mode)?,
+                        $($key_path)? $(::$key_path_rest)* ::parse_meta_item(input, mode)?,
                     ))
                 }
             }
@@ -478,7 +494,7 @@ macro_rules! define_with_map {
                     mode: $crate::ParseMode,
                 ) -> $crate::Result<Self> {
                     $crate::Result::Ok(Self(
-                        $valsource $(::$valsources)* ::parse_meta_item(input, mode)?,
+                        $($value_path)? $(::$value_path_rest)* ::parse_meta_item(input, mode)?,
                     ))
                 }
             }
@@ -487,28 +503,38 @@ macro_rules! define_with_map {
             pub fn parse_meta_item(
                 input: $crate::syn::parse::ParseStream,
                 mode: $crate::ParseMode,
-            ) -> $crate::Result<$coll $(:: $colls)* <$key, $val>> {
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$key, $val>> {
                 $crate::Result::Ok(
-                    $crate::IntoIterator::into_iter(
-                        <$crate::HashMap<InnerKey, InnerValue> as $crate::ParseMetaItem>::parse_meta_item(input, mode)?
-                    ).map(|(k, v)| (k.0, v.0)).collect(),
+                    $crate::Iterator::collect(
+                        $crate::Iterator::map(
+                            $crate::IntoIterator::into_iter(
+                                <$crate::HashMap<InnerKey, InnerValue> as $crate::ParseMetaItem>::parse_meta_item(input, mode)?
+                            ),
+                            |(k, v)| (k.0, v.0),
+                        ),
+                    )
                 )
             }
             #[inline]
-            pub fn parse_meta_item_inline(
-                inputs: &[$crate::syn::parse::ParseStream],
+            pub fn parse_meta_item_inline<'s, S: $crate::Borrow<$crate::syn::parse::ParseBuffer<'s>>>(
+                inputs: &[S],
                 mode: $crate::ParseMode,
-            ) -> $crate::Result<$coll $(:: $colls)* <$key, $val>> {
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$key, $val>> {
                 $crate::Result::Ok(
-                    $crate::IntoIterator::into_iter(
-                        <$crate::HashMap<InnerKey, InnerValue> as $crate::ParseMetaItem>::parse_meta_item_inline(inputs, mode)?
-                    ).map(|(k, v)| (k.0, v.0)).collect(),
+                    $crate::Iterator::collect(
+                        $crate::Iterator::map(
+                            $crate::IntoIterator::into_iter(
+                                <$crate::HashMap<InnerKey, InnerValue> as $crate::ParseMetaItem>::parse_meta_item_inline(inputs, mode)?
+                            ),
+                            |(k, v)| (k.0, v.0),
+                        ),
+                    )
                 )
             }
             #[inline]
             pub fn parse_meta_item_flag(
                 _span: $crate::Span,
-            ) -> $crate::Result<$coll $(:: $colls)* <$key, $val>> {
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$key, $val>> {
                 $crate::Result::Ok($crate::Default::default())
             }
             #[inline]
@@ -520,24 +546,60 @@ macro_rules! define_with_map {
                 inputs: &[S],
                 mode: $crate::ParseMode,
                 index: $crate::primitive::usize
-            ) -> $crate::Result<$coll $(:: $colls)* <$key, $val>> {
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$key, $val>> {
                 $crate::Result::Ok(
-                    $crate::IntoIterator::into_iter(
-                        <$crate::HashMap<InnerKey, InnerValue> as $crate::ParseMetaFlatUnnamed>::parse_meta_flat_unnamed(inputs, mode, index)?
-                    ).map(|(k, v)| (k.0, v.0)).collect(),
+                    $crate::Iterator::collect(
+                        $crate::Iterator::map(
+                            $crate::IntoIterator::into_iter(
+                                <$crate::HashMap<InnerKey, InnerValue> as $crate::ParseMetaFlatUnnamed>::parse_meta_flat_unnamed(inputs, mode, index)?
+                            ),
+                            |(k, v)| (k.0, v.0),
+                        ),
+                    )
                 )
             }
             #[inline]
             pub fn parse_meta_rest<'s, S: $crate::Borrow<$crate::syn::parse::ParseBuffer<'s>>>(
                 inputs: &[S],
                 exclude: &[&$crate::primitive::str],
-            ) -> $crate::Result<$coll $(:: $colls)* <$key, $val>> {
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$key, $val>> {
                 $crate::Result::Ok(
-                    $crate::IntoIterator::into_iter(
-                        <$crate::HashMap<InnerKey, InnerValue> as $crate::ParseMetaRest>::parse_meta_rest(inputs, exclude)?
-                    ).map(|(k, v)| (k.0, v.0)).collect(),
+                    $crate::Iterator::collect(
+                        $crate::Iterator::map(
+                            $crate::IntoIterator::into_iter(
+                                <$crate::HashMap<InnerKey, InnerValue> as $crate::ParseMetaRest>::parse_meta_rest(inputs, exclude)?
+                            ),
+                            |(k, v)| (k.0, v.0),
+                        ),
+                    )
                 )
             }
         }
     };
+}
+
+/// Helpers for parsing any type that implements [`ParseMetaItem`](crate::ParseMetaItem) as itself.
+///
+/// Only meant to be used from [`define_with_map`](macro@define_with_map).
+pub mod identity {
+    #![allow(missing_docs)]
+    use crate::{ParseMetaItem, ParseMode, Result};
+    use std::borrow::Borrow;
+    use syn::parse::{ParseBuffer, ParseStream};
+
+    #[inline]
+    pub fn parse_meta_item<T: ParseMetaItem>(input: ParseStream, mode: ParseMode) -> Result<T> {
+        T::parse_meta_item(input, mode)
+    }
+    #[inline]
+    pub fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>, T: ParseMetaItem>(
+        inputs: &[S],
+        mode: ParseMode,
+    ) -> Result<T> {
+        T::parse_meta_item_inline(inputs, mode)
+    }
+    #[inline]
+    pub fn parse_meta_item_flag<T: ParseMetaItem>(span: proc_macro2::Span) -> Result<T> {
+        T::parse_meta_item_flag(span)
+    }
 }
