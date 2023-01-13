@@ -20,6 +20,3 @@ proc-macro-crate = "1.1.3"
 quote = "1.0.18"
 syn = { version = "1.0.96", features = ["full", "parsing"], default-features = false }
 deluxe-core = { path = "../core", version = "0.1.0" }
-
-[dev-dependencies]
-deluxe = { path = "..", version = "0.1.0" }
