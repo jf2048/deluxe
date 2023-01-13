@@ -694,7 +694,8 @@ pub fn first_span(spans: &[Span]) -> Span {
     spans.first().cloned().unwrap_or_else(Span::call_site)
 }
 
-/// Forks all streams in a [`ParseStream`](syn::parse::ParseStream) slice into a new [`Vec`].
+/// Forks all streams in a [`ParseStream`](syn::parse::ParseStream) slice into a new [`Vec`] of
+/// owned [`ParseBuffer`](syn::parse::ParseBuffer)s.
 ///
 /// Used to copy the initial states in a list of streams before calling [`parse_struct`].
 #[inline]

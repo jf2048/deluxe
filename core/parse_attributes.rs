@@ -495,24 +495,65 @@ impl_has_attributes!(syn::Variant);
 ///
 /// This trait is only called by the `#[deluxe(container)`] attribute on fields to properly handle
 /// conversions to corresponding owned and [`Option`] types.
+///
+/// Custom implementations can be provided if a wrapper for the `syn` type is needed, or if needing
+/// to transform the `syn` type into something else. When using a custom container type, make sure
+/// to set `#[deluxe(container(ty = ...))]` on the container field. The
+/// [`container_from`](Self::container_from) method will be called when deriving
+/// [`ParseAttributes`], and [`container_from_mut`](Self::container_from_mut) will be called when
+/// deriving [`ExtractAttributes`].
+///
+/// ```ignore
+/// struct IdentWrapper<'t>(&'t syn::Ident);
+///
+/// impl<'t> deluxe::ContainerFrom<'t, syn::ItemFn> for IdentWrapper<'t> {
+///     #[inline]
+///     fn container_from(t: &'t syn::ItemFn) -> Self {
+///         Self(&t.sig.ident)
+///     }
+/// }
+///
+/// impl<'t> deluxe::ContainerFrom<'t, syn::ItemStruct> for IdentWrapper<'t> {
+///     #[inline]
+///     fn container_from(t: &'t syn::ItemFn) -> Self {
+///         Self(&t.ident)
+///     }
+/// }
+///
+/// // can only be parsed from an `ItemFn`
+/// #[derive(deluxe::ParseAttributes)]
+/// struct Func<'t> {
+///     id: u64,
+///     #[deluxe(container(ty = syn::ItemFn))]
+///     container: IdentWrapper<'t>,
+/// }
+///
+/// // can only be parsed from an `ItemStruct`
+/// #[derive(deluxe::ParseAttributes)]
+/// struct Struct<'t> {
+///     id: u64,
+///     #[deluxe(container(ty = syn::ItemStruct))]
+///     container: IdentWrapper<'t>,
+/// }
+/// ```
 pub trait ContainerFrom<'t, T> {
-    /// Converts a reference to a stored container `T`.
+    /// Converts a reference to a stored container `T` into this type.
     #[inline]
     #[allow(unused)]
     fn container_from(t: &'t T) -> Self
     where
         Self: Sized,
     {
-        unimplemented!()
+        unimplemented!("immutable container not supported for this type")
     }
-    /// Converts a mutable reference to a stored container `T`.
+    /// Converts a mutable reference to a stored container `T` into this type.
     #[inline]
     #[allow(unused)]
     fn container_from_mut(t: &'t mut T) -> Self
     where
         Self: Sized,
     {
-        unimplemented!()
+        unimplemented!("mutable container not supported for this type")
     }
 }
 
