@@ -41,6 +41,27 @@ fn multi_attributes() {
 }
 
 #[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, PartialEq, Debug)]
+#[deluxe(attributes(many))]
+struct Many(i32, i32, i32, i32, i32, i32);
+
+#[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, PartialEq, Debug)]
+#[deluxe(attributes(many), transparent)]
+struct ManyVec(::std::vec::Vec<i32>);
+
+#[test]
+fn split_attributes() {
+    let expr: ::syn::Expr =
+        ::syn::parse2(q! { #[many(1)] #[many(2, 3)] #[many(4, 5, 6)] true }).unwrap();
+    let m: Many = ::deluxe::parse_attributes(&expr).unwrap();
+    ::std::assert_eq!(m, Many(1, 2, 3, 4, 5, 6));
+
+    let expr: ::syn::Expr =
+        ::syn::parse2(q! { #[many(1)] #[many(2, 3)] #[many(4, 5, 6)] true }).unwrap();
+    let m: ManyVec = ::deluxe::parse_attributes(&expr).unwrap();
+    ::std::assert_eq!(m, ManyVec(::std::vec![1, 2, 3, 4, 5, 6]));
+}
+
+#[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, PartialEq, Debug)]
 #[deluxe(attributes(container::clone))]
 struct CloneContainer {
     #[deluxe(container)]
