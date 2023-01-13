@@ -8,6 +8,7 @@ documentation = "https://docs.rs/deluxe"
 homepage = "https://github.com/jf2048/deluxe"
 repository = "https://github.com/jf2048/deluxe.git"
 readme = "README.md"
+keywords = ["macros", "derive", "attributes"]
 include = ["/src", "/tests", "/README.md", "/COPYING"]
 
 [features]
