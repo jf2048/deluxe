@@ -2,6 +2,13 @@
 name = "deluxe"
 version = "0.1.0"
 edition = "2021"
+description = "Procedural macro attribute parser"
+license = "MIT"
+documentation = "https://docs.rs/deluxe"
+homepage = "https://github.com/jf2048/deluxe"
+repository = "https://github.com/jf2048/deluxe.git"
+readme = "README.md"
+include = ["/src", "/tests", "/README.md", "/COPYING"]
 
 [features]
 default = ["proc-macro"]

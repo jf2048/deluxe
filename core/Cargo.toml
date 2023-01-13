@@ -2,6 +2,11 @@
 name = "deluxe-core"
 version = "0.1.0"
 edition = "2021"
+description = "Core traits and helpers for Deluxe procedural macro attribute parser"
+license = "MIT"
+documentation = "https://docs.rs/deluxe-core"
+homepage = "https://github.com/jf2048/deluxe"
+repository = "https://github.com/jf2048/deluxe.git"
 
 [lib]
 path = "lib.rs"
