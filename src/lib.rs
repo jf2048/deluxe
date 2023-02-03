@@ -393,14 +393,14 @@ pub mod ____private {
     };
 }
 
-#[doc(hidden)]
 pub use deluxe_core::{
     define_with_collection, define_with_map, define_with_optional, parse_named_meta_item_with,
-    ContainerFrom, Errors, ParseMetaAppend, ParseMetaFlatNamed, ParseMetaFlatUnnamed,
-    ParseMetaRest, ParseMode,
+    with, Error, Errors, ExtractAttributes, HasAttributes, ParseAttributes, ParseMetaItem,
+    ParseMode, Result,
 };
+#[doc(hidden)]
 pub use deluxe_core::{
-    with, Error, ExtractAttributes, HasAttributes, ParseAttributes, ParseMetaItem, Result,
+    ContainerFrom, ParseMetaAppend, ParseMetaFlatNamed, ParseMetaFlatUnnamed, ParseMetaRest,
 };
 pub use deluxe_macros::*;
 
