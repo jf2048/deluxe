@@ -75,7 +75,7 @@ impl<'v> Variant<'v> {
                 .enumerate()
                 .find_map(|(i, f)| {
                     (f.is_parsable() && !f.is_flat())
-                        .then(|| quote::format_ident!("field{}", i, span = Span::mixed_site()))
+                        .then(|| quote::format_ident!("field{i}", span = Span::mixed_site()))
                 })
                 .unwrap();
             return quote_mixed! {
@@ -572,8 +572,7 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                             if variant.ident == name {
                                 errors.push(span, "cannot rename field to its own name");
                             } else if idents.contains(&name) {
-                                errors
-                                    .push(span, format_args!("alias already given for `{}`", name));
+                                errors.push(span, format_args!("alias already given for `{name}`"));
                             } else {
                                 idents.insert(0, name);
                             }
@@ -583,7 +582,7 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                             if variant.ident == alias {
                                 errors.push(span, "cannot alias field to its own name");
                             } else if idents.contains(&alias) {
-                                errors.push(span, format_args!("duplicate alias for `{}`", alias));
+                                errors.push(span, format_args!("duplicate alias for `{alias}`"));
                             } else {
                                 alias_span = Some(span);
                                 idents.push(alias);

@@ -261,7 +261,7 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                             if all_idents.contains(&ident) {
                                 errors.push_spanned(
                                     ident,
-                                    format_args!("duplicate variant name for `{}`", ident),
+                                    format_args!("duplicate variant name for `{ident}`"),
                                 );
                             } else {
                                 all_idents.insert(ident);

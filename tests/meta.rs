@@ -351,7 +351,7 @@ fn vec_field() {
 fn skipped_field_rest() {
     use ::std::prelude::v1::*;
     let parse = parse_meta::<MyNamedComplex>;
-    ::std::assert_eq!(parse(q! { { idents = [] } }).unwrap().skipped, false);
+    ::std::assert!(!parse(q! { { idents = [] } }).unwrap().skipped);
     ::std::assert_eq!(
         parse(q! { { idents = [], skipped = true } }).unwrap(),
         MyNamedComplex {
@@ -1458,7 +1458,7 @@ fn transparent_flat() {
     ::std::assert_eq!(
         parse(q! { { h(a(1), b(2), c(3)) } }).unwrap(),
         TransparentHolder::H {
-            r: MyTransparentNamedMap { nums: map.clone() }
+            r: MyTransparentNamedMap { nums: map }
         }
     );
 }

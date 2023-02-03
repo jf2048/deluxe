@@ -205,7 +205,7 @@ impl<'s> Struct<'s> {
                     (f.is_parsable() && !f.is_flat()).then(|| {
                         (
                             f,
-                            quote::format_ident!("field{}", i, span = Span::mixed_site()),
+                            quote::format_ident!("field{i}", span = Span::mixed_site()),
                         )
                     })
                 })
@@ -503,7 +503,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                         if all_idents.contains(ident) {
                             errors.push_spanned(
                                 ident,
-                                format_args!("duplicate field name for `{}`", ident),
+                                format_args!("duplicate field name for `{ident}`"),
                             );
                         } else {
                             all_idents.insert(ident.clone());

@@ -480,7 +480,7 @@ impl<'f> Field<'f> {
         let names = fields
             .iter()
             .enumerate()
-            .map(|(i, _)| quote::format_ident!("field{}", i, span = Span::mixed_site()))
+            .map(|(i, _)| quote::format_ident!("field{i}", span = Span::mixed_site()))
             .collect::<Vec<_>>();
         let container_def = fields.iter().enumerate().filter_map(|(i, f)| {
             (f.is_container() && *mode != TokenMode::ParseMetaItem).then(|| {
@@ -775,7 +775,7 @@ impl<'f> Field<'f> {
         let names = fields
             .iter()
             .enumerate()
-            .map(|(i, _)| quote::format_ident!("field{}", i, span = Span::mixed_site()))
+            .map(|(i, _)| quote::format_ident!("field{i}", span = Span::mixed_site()))
             .collect::<Vec<_>>();
         let inputs_expr = any_flat
             .then(|| {
@@ -1046,8 +1046,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                             if field.ident.as_ref() == Some(&name) {
                                 errors.push(span, "cannot rename field to its own name");
                             } else if idents.contains(&name) {
-                                errors
-                                    .push(span, format_args!("alias already given for `{}`", name));
+                                errors.push(span, format_args!("alias already given for `{name}`"));
                             } else {
                                 idents.insert(0, name);
                             }
@@ -1060,7 +1059,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                             if field.ident.as_ref() == Some(&alias) {
                                 errors.push(span, "cannot alias field to its own name");
                             } else if idents.contains(&alias) {
-                                errors.push(span, format_args!("duplicate alias for `{}`", alias));
+                                errors.push(span, format_args!("duplicate alias for `{alias}`"));
                             } else {
                                 alias_span = Some(span);
                                 idents.push(alias);
