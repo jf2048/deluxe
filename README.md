@@ -11,10 +11,11 @@ A Rust procedural macro attribute parser.
 
 ### Abstract
 
-This crate offers attribute parsing closer to the design of attributes in C#. It has an
-interface similar to [serde](https://serde.rs). Attributes are written as plain Rust structs or
-enums, and then parsers for them are generated automatically. They can contain arbitrary
-expressions and can inherit from other attributes using a flattening mechanism.
+This crate offers attribute parsing closer to the design of attributes in C#.
+It has an interface similar to [serde](https://serde.rs). Attributes are
+written as plain Rust structs or enums, and then parsers for them are generated
+automatically. They can contain arbitrary expressions and can inherit from
+other attributes using a flattening mechanism.
 
 The parsers in this crate directly parse token streams using
 [`syn`](https://docs.rs/syn). As a result, most built-in Rust types and `syn`
@@ -22,27 +23,30 @@ types can be used directly as fields.
 
 ### Details
 
-Functionality in this crate is centered around three traits, and their respective derive macros:
+Functionality in this crate is centered around three traits, and their
+respective derive macros:
 
 - **[`ExtractAttributes`]**
 
-  Extracts attributes from an object containing a list of `syn::Attribute`, and parses them
-  into a Rust type. Should be implemented for top-level structures that will be parsed directly
-  out of a set of matching attributes.
+  Extracts attributes from an object containing a list of `syn::Attribute`, and
+  parses them into a Rust type. Should be implemented for top-level structures
+  that will be parsed directly out of a set of matching attributes.
 - **[`ParseAttributes`]**
 
-  Parses a Rust type from any object containing a list of `syn::Attribute`. Should be used if
-  the set of matching attributes can potentially be shared between this type and other types.
+  Parses a Rust type from any object containing a list of `syn::Attribute`.
+  Should be used if the set of matching attributes can potentially be shared
+  between this type and other types.
 - **[`ParseMetaItem`]**
 
   Parses a Rust type from a `syn::parse::ParseStream`. Should be implemented for
   any types that can be nested inside an attribute.
 
-Basic usage of this crate requires simply deriving one (or a few) of these traits, and then
-calling [`extract_attributes`] or [`parse_attributes`]. For more advanced functionality,
-several `#[deluxe(...)]` attributes are supported on structs, enums, variants
-and fields. See the examples below, and the documentation for each derive macro
-for a complete description of the supported attributes.
+Basic usage of this crate in derive macros requires simply deriving one (or a
+few) of these traits, and then calling [`extract_attributes`] or
+[`parse_attributes`]. For more advanced functionality, several `#[deluxe(...)]`
+attributes are supported on structs, enums, variants and fields. See the
+examples below, and the documentation for each derive macro for a complete
+description of the supported attributes.
 
 A list of field types supported by default can be seen in the list of provided
 [`ParseMetaItem`
@@ -65,14 +69,16 @@ any type containing a `Vec<syn::Attribute>`.
 
 ### Examples
 
-#### Basic
+#### Basic Derive Macro
 
-Inside your procedural macro, the [`ExtractAttributes`] trait can be derived to
-extract a struct from a named attribute:
+To create a derive macro that can add some simple metadata to a Rust type from
+an attribute, start by defining a struct that derives [`ExtractAttributes`].
+Then, call [`extract_attributes`] in your derive macro to create an instance of
+the struct:
 
 ```rust
 #[derive(deluxe::ExtractAttributes)]
-#[deluxe(attributes(my_desc))] // match only `my_desc` attributes
+#[deluxe(attributes(my_desc))] // Match only `my_desc` attributes
 struct MyDescription {
     name: String,
     version: String,
@@ -113,6 +119,47 @@ let hello = Hello("Moon".into());
 assert_eq!(hello.my_desc(), "Name: hello world, Version: 0.2");
 ```
 
+#### Basic Attribute Macro
+
+The [`parse`] and [`parse2`] functions included in this crate can also be used
+as simple helpers for attribute macros:
+
+```rust
+#[derive(deluxe::ParseMetaItem)]
+struct MyDescription {
+    name: String,
+    version: String,
+}
+
+#[proc_macro_attribute]
+pub fn my_desc(
+    attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let MyDescription { name, version } = match deluxe::parse::<MyDescription>(attr) {
+        Ok(desc) => desc,
+        Err(e) => return e.into_compile_error().into()
+    };
+
+    let tokens = quote::quote! {
+        fn my_desc() -> &'static str {
+            concat!("Name: ", #name, ", Version: ", #version)
+        }
+        #item
+    };
+    tokens.into()
+}
+```
+
+```rust
+// In your normal code
+
+#[my_desc(name = "hello world", version = "0.2")]
+fn nothing() {}
+
+assert_eq!(my_desc(), "Name: hello world, Version: 0.2");
+```
+
 #### Field Attributes
 
 The attributes `alias`, `default`, `rename`, and `skip` are supported, and
@@ -124,38 +171,38 @@ be used to do custom processing on any unknown keys.
 #[derive(deluxe::ExtractAttributes)]
 #[deluxe(attributes(my_object))]
 struct MyObject {
-    // can be specified with key `id` or `object_id`
+    // Can be specified with key `id` or `object_id`
     #[deluxe(alias = object_id)]
     id: u64,
 
-    // field is optional, defaults to `Default::default` if not present
+    // Field is optional, defaults to `Default::default` if not present
     #[deluxe(default)]
     count: u64,
 
-    // defaults to "Empty" if not present
+    // Defaults to "Empty" if not present
     #[deluxe(default = String::from("Empty"))]
     contents: String,
 
-    // can be specified only with key `name`
+    // Can be specified only with key `name`
     #[deluxe(rename = name)]
     s: String,
 
-    // skipped during parsing entirely
+    // Skipped during parsing entirely
     #[deluxe(skip)]
     internal_flag: bool,
 
-    // appends any extra fields with the key `expr` to the Vec
+    // Appends any extra fields with the key `expr` to the Vec
     #[deluxe(append, rename = expr)]
     exprs: Vec<syn::Expr>,
 
-    // adds any unknown keys to the hash map
+    // Adds any unknown keys to the hash map
     #[deluxe(rest)]
     rest: std::collections::HashMap<syn::Path, syn::Expr>,
 }
 ```
 
 ```rust
-// omitted fields will be set to defaults
+// Omitted fields will be set to defaults
 #[derive(MyObject)]
 #[my_object(id = 1, name = "First", expr = 1 + 2, count = 3)]
 struct FirstObject;
@@ -196,6 +243,139 @@ Then, fields from both `A` and `B` can be used when deriving `B`:
 #[derive(B)]
 #[b(id = 123, name = "object")]
 struct Object;
+```
+
+#### Attributes in Nested Code
+
+Extra attributes can be taken from within the code block attached to a macro.
+When used in an attribute macro, the attributes should be consumed so as not to
+produce an "unknown attribute" error when outputting tokens.
+
+```rust
+#[derive(Default, deluxe::ParseMetaItem, deluxe::ExtractAttributes)]
+struct MyDescription {
+    name: String,
+    version: String,
+}
+
+#[derive(deluxe::ExtractAttributes)]
+#[deluxe(attributes(author))]
+struct Authors(#[deluxe(flatten)] Vec<String>);
+
+#[proc_macro_derive(MyDescription, attributes(my_desc))]
+pub fn derive_my_description(item: TokenStream) -> TokenStream {
+    let mut input = syn::parse::<syn::DeriveInput>(item).unwrap();
+
+    let errors = deluxe::Errors::new();
+    let MyDescription { name, version } = match deluxe::extract_attributes(&mut input) {
+        Ok(desc) => desc,
+        Err(e) => {
+            // Store the error and use a default implementation to avoid producing more errors
+            errors.push_syn(e);
+            Default::default()
+        }
+    };
+
+    let mut authors = Vec::new();
+    if let syn::Data::Struct(s) = &mut input.data {
+        // Look through all fields in the struct for `author` attributes
+        for field in s.fields.iter_mut() {
+            // Aggregate any errors to avoid exiting the loop early
+            match deluxe::extract_attributes(field) {
+                Ok(Authors(a)) => authors.extend(a),
+                Err(e) => errors.push_syn(e),
+            }
+        }
+    }
+
+    let ident = &input.ident;
+    let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
+    let errors = errors.into_compile_error();
+
+    let tokens = quote::quote! {
+        impl #impl_generics #ident #type_generics #where_clause {
+            fn my_desc() -> &'static str {
+                concat!("Name: ", #name, ", Version: ", #version #(, ", Author: ", #authors)*)
+            }
+        }
+        #errors
+    };
+    tokens.into()
+}
+
+#[proc_macro_attribute]
+pub fn my_desc_mod(
+    attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let mut module = syn::parse::<syn::ItemMod>(item) {
+        Ok(module) => module,
+        Err(e) => return e.into_compile_error().into()
+    };
+
+    let errors = deluxe::Errors::new();
+    let MyDescription { name, version } = deluxe::parse::<MyDescription>(attr) {
+        Ok(desc) => desc,
+        Err(e) => {
+            errors.push_syn(e);
+            Default::default()
+        },
+    };
+
+    let (_, items) = module.content.as_mut().unwrap();
+
+    let mut authors = Vec::new();
+    // Look through all items in the module for `author` attributes
+    for i in items.iter_mut() {
+        // Extract the attributes to remove them from the final output
+        match deluxe::extract_attributes(i) {
+            Ok(Authors(a)) => authors.extend(a),
+            Err(e) => errors.push_syn(e),
+        }
+    }
+
+    // Place a new function inside the module
+    items.push(syn::parse_quote! {
+        fn my_desc() -> &'static str {
+            concat!("Name: ", #name, ", Version: ", #version #(, ", Author: ", #authors)*)
+        }
+    });
+
+    let errors = errors.into_compile_error();
+    let tokens = quote::quote! { #module #errors };
+    tokens.into()
+}
+```
+
+```rust
+// In your normal code
+
+#[derive(MyDescription, Default)]
+#[my_desc(name = "hello world", version = "0.2")]
+struct Hello {
+    #[author("Alice")]
+    a: i32,
+    #[author("Bob")]
+    b: String
+}
+
+let hello: Hello = Default::default();
+assert_eq!(hello.my_desc(), "Name: hello world, Version: 0.2, Author: Alice, Author: Bob");
+
+#[my_desc_mod(name = "hello world", version = "0.2")]
+mod abc {
+    #[author("Alice", "Bob")]
+    fn func1() {}
+
+    #[author("Carol")]
+    #[author("Dave")]
+    fn func2() {}
+}
+
+assert_eq!(
+    abc::my_desc(),
+    "Name: hello world, Version: 0.2, Author: Alice, Author: Bob, Author: Carol, Author: Dave"
+);
 ```
 
 #### Tuple Structs, Tuples and Vecs
@@ -334,7 +514,7 @@ struct ObjectB;
 #[my_enum(c(id = 2, name = "world"))]
 struct ObjectC;
 
-// no inner parenthesis needed here due to flattening
+// No inner parenthesis needed here due to flattening
 #[derive(MyEnum)]
 #[my_enum(d = 3, name = "moon")]
 struct ObjectD;
@@ -342,8 +522,9 @@ struct ObjectD;
 
 #### Storing Containers
 
-During parsing, Deluxe can store references to the container type holding the attributes
-for easier access. Container fields are skipped during attribute parsing.
+During parsing, Deluxe can store references to the container type holding the
+attributes for easier access. Container fields are skipped during attribute
+parsing.
 
 ```rust
 #[derive(deluxe::ParseAttributes)]
@@ -380,3 +561,5 @@ type. In that case, the container will be cloned into the structure.
 [`ExtractAttributes`]: (https://docs.rs/deluxe/latest/deluxe/derive.ExtractAttributes.html)
 [`parse_attributes`]: (https://docs.rs/deluxe/latest/deluxe/fn.parse_attributes.html)
 [`extract_attributes`]: (https://docs.rs/deluxe/latest/deluxe/fn.extract_attributes.html)
+[`parse`]: (https://docs.rs/deluxe/latest/deluxe/fn.parse.html)
+[`parse2`]: (https://docs.rs/deluxe/latest/deluxe/fn.parse2.html)

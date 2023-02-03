@@ -29,11 +29,11 @@
 //!   Parses a Rust type from a [`ParseStream`](syn::parse::ParseStream). Should be implemented for
 //!   any types that can be nested inside an attribute.
 //!
-//! Basic usage of this crate requires simply deriving one (or a few) of these traits, and then
-//! calling [`extract_attributes`] or [`parse_attributes`]. For more advanced functionality,
-//! several `#[deluxe(...)]` attributes are supported on structs, enums, variants and fields. See
-//! the examples below, and the documentation for each derive macro for a complete description of
-//! the supported attributes.
+//! Basic usage of this crate in derive macros requires simply deriving one (or a few) of these
+//! traits, and then calling [`extract_attributes`] or [`parse_attributes`]. For more advanced
+//! functionality, several `#[deluxe(...)]` attributes are supported on structs, enums, variants
+//! and fields. See the examples below, and the documentation for each derive macro for a complete
+//! description of the supported attributes.
 //!
 //! A list of field types supported by default can be seen in the list of provided [`ParseMetaItem`
 //! implementations](trait@ParseMetaItem#foreign-impls). For more complex usage, manual
@@ -54,7 +54,7 @@
 //!
 //! ### Examples
 //!
-//! #### Basic
+//! #### Basic Derive Macro
 //!
 //! To create a derive macro that can add some simple metadata to a Rust type from an attribute,
 //! start by defining a struct that derives [`ExtractAttributes`](macro@ExtractAttributes). Then,
@@ -87,15 +87,34 @@
 //!     })
 //! }
 //!
-//! # my_derive(quote::quote! {
+//! # let tokens = my_derive(quote::quote! {
 //! #     #[my_desc(name = "hello world", version = "0.2")]
 //! #     struct Hello;
 //! # }).unwrap();
+//! # let i: syn::ItemImpl = syn::parse_quote! { #tokens };
+//! # assert_eq!(i, syn::parse_quote! {
+//! #     impl Hello {
+//! #         fn my_desc() -> &'static str {
+//! #             concat!("Name: ", "hello world", ", Version: ", "0.2")
+//! #         }
+//! #     }
+//! # });
 //! ```
 //!
 //! Then, try adding the attribute in some code that uses your macro:
 //!
 //! ```ignore
+//! // In your macros crate
+//!
+//! #[proc_macro_derive(MyDescription, attributes(my_desc))]
+//! pub fn derive_my_description(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+//!     my_derive(item.into()).unwrap().into()
+//! }
+//! ```
+//!
+//! ```ignore
+//! // In your normal code
+//!
 //! #[derive(MyDescription, Default)]
 //! #[my_desc(name = "hello world", version = "0.2")]
 //! struct Hello {
@@ -105,6 +124,65 @@
 //!
 //! let hello: Hello = Default::default();
 //! assert_eq!(hello.my_desc(), "Name: hello world, Version: 0.2");
+//! ```
+//!
+//! #### Basic Attribute Macro
+//!
+//! The `parse` and `parse2` functions included in this crate can also be used as simple helpers
+//! for attribute macros:
+//!
+//! ```
+//! #[derive(deluxe::ParseMetaItem)]
+//! struct MyDescription {
+//!     name: String,
+//!     version: String,
+//! }
+//!
+//! fn my_desc_attr(
+//!     attr: proc_macro2::TokenStream,
+//!     item: proc_macro2::TokenStream,
+//! ) -> deluxe::Result<proc_macro2::TokenStream> {
+//!     let MyDescription { name, version } = deluxe::parse2::<MyDescription>(attr)?;
+//!
+//!     Ok(quote::quote! {
+//!         fn my_desc() -> &'static str {
+//!             concat!("Name: ", #name, ", Version: ", #version)
+//!         }
+//!         #item
+//!     })
+//! }
+//!
+//! # let tokens = my_desc_attr(
+//! #     quote::quote!(name = "hello world", version = "0.2"),
+//! #     quote::quote!(),
+//! # ).unwrap();
+//! # let f: syn::ItemFn = syn::parse_quote! { #tokens };
+//! # assert_eq!(f, syn::parse_quote! {
+//! #     fn my_desc() -> &'static str {
+//! #         concat!("Name: ", "hello world", ", Version: ", "0.2")
+//! #     }
+//! # });
+//! ```
+//!
+//! ```ignore
+//! // In your macros crate
+//!
+//! #[proc_macro_attribute]
+//! pub fn my_desc(
+//!     attr: proc_macro::TokenStream,
+//!     item: proc_macro::TokenStream,
+//! ) -> proc_macro::TokenStream {
+//!     my_desc_attr(attr.into(), item.into()).unwrap().into()
+//! }
+//! ```
+//!
+//! ```ignore
+//! // In your normal code
+//!
+//! #[my_desc(name = "hello world", version = "0.2")]
+//! fn nothing() {}
+//!
+//! assert_eq!(my_desc(), "Name: hello world, Version: 0.2");
 //! ```
 //!
 //! #### Field Attributes
@@ -121,38 +199,38 @@
 //! #[derive(deluxe::ExtractAttributes)]
 //! #[deluxe(attributes(my_object))]
 //! struct MyObject {
-//!     // can be specified with key `id` or `object_id`
+//!     // Can be specified with key `id` or `object_id`
 //!     #[deluxe(alias = object_id)]
 //!     id: u64,
 //!
-//!     // field is optional, defaults to `Default::default` if not present
+//!     // Field is optional, defaults to `Default::default` if not present
 //!     #[deluxe(default)]
 //!     count: u64,
 //!
-//!     // defaults to "Empty" if not present
+//!     // Defaults to "Empty" if not present
 //!     #[deluxe(default = String::from("Empty"))]
 //!     contents: String,
 //!
-//!     // can be specified only with key `name`
+//!     // Can be specified only with key `name`
 //!     #[deluxe(rename = name)]
 //!     s: String,
 //!
-//!     // skipped during parsing entirely
+//!     // Skipped during parsing entirely
 //!     #[deluxe(skip)]
 //!     internal_flag: bool,
 //!
-//!     // appends any extra fields with the key `expr` to the Vec
+//!     // Appends any extra fields with the key `expr` to the Vec
 //!     #[deluxe(append, rename = expr)]
 //!     exprs: Vec<syn::Expr>,
 //!
-//!     // adds any unknown keys to the hash map
+//!     // Adds any unknown keys to the hash map
 //!     #[deluxe(rest)]
 //!     rest: std::collections::HashMap<syn::Path, syn::Expr>,
 //! }
 //! ```
 //!
 //! ```ignore
-//! // omitted fields will be set to defaults
+//! // Omitted fields will be set to defaults
 //! #[derive(MyObject)]
 //! #[my_object(id = 1, name = "First", expr = 1 + 2, count = 3)]
 //! struct FirstObject;
@@ -194,6 +272,144 @@
 //! #[derive(B)]
 //! #[b(id = 123, name = "object")]
 //! struct Object;
+//! ```
+//!
+//! #### Attributes in Nested Code
+//!
+//! Extra attributes can be taken from within the code block attached to a macro. When used in an
+//! attribute macro, the attributes should be consumed so as not to produce an "unknown attribute"
+//! error when outputting tokens.
+//!
+//! ```
+//! #[derive(deluxe::ParseMetaItem, deluxe::ExtractAttributes)]
+//! struct MyDescription {
+//!     name: String,
+//!     version: String,
+//! }
+//!
+//! #[derive(deluxe::ExtractAttributes)]
+//! #[deluxe(attributes(author))]
+//! struct Authors(#[deluxe(flatten)] Vec<String>);
+//!
+//! fn my_derive(item: proc_macro2::TokenStream) -> deluxe::Result<proc_macro2::TokenStream> {
+//!     let mut input = syn::parse2::<syn::DeriveInput>(item)?;
+//!     let MyDescription { name, version } = deluxe::extract_attributes(&mut input)?;
+//!     let mut authors = Vec::new();
+//!     if let syn::Data::Struct(s) = &mut input.data {
+//!          // Look through all fields in the struct for `author` attributes
+//!         for field in s.fields.iter_mut() {
+//!             let Authors(a) = deluxe::extract_attributes(field)?;
+//!             authors.extend(a);
+//!         }
+//!     }
+//!
+//!     let ident = &input.ident;
+//!     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
+//!
+//!     Ok(quote::quote! {
+//!         impl #impl_generics #ident #type_generics #where_clause {
+//!             fn my_desc() -> &'static str {
+//!                 concat!("Name: ", #name, ", Version: ", #version #(, ", Author: ", #authors)*)
+//!             }
+//!         }
+//!     })
+//! }
+//!
+//! # let tokens = my_derive(quote::quote! {
+//! #     #[my_desc(name = "hello world", version = "0.2")]
+//! #     struct Hello(#[author("Alice")] String);
+//! # }).unwrap();
+//! # let i: syn::ItemImpl = syn::parse_quote! { #tokens };
+//! # assert_eq!(i, syn::parse_quote! {
+//! #     impl Hello {
+//! #         fn my_desc() -> &'static str {
+//! #             concat!("Name: ", "hello world", ", Version: ", "0.2", ", Author: ", "Alice")
+//! #         }
+//! #     }
+//! # });
+//!
+//! fn my_desc_mod(
+//!     attr: proc_macro2::TokenStream,
+//!     item: proc_macro2::TokenStream,
+//! ) -> deluxe::Result<proc_macro2::TokenStream> {
+//!     let MyDescription { name, version } = deluxe::parse2::<MyDescription>(attr)?;
+//!     let mut authors = Vec::new();
+//!     let mut module = syn::parse2::<syn::ItemMod>(item)?;
+//!
+//!     let (_, items) = module.content.as_mut().unwrap();
+//!
+//!     // Look through all items in the module for `author` attributes
+//!     for i in items.iter_mut() {
+//!         // Extract the attributes to remove them from the final output
+//!         let Authors(a) = deluxe::extract_attributes(i)?;
+//!         authors.extend(a);
+//!     }
+//!
+//!     // Place a new function inside the module
+//!     items.push(syn::parse_quote! {
+//!         fn my_desc() -> &'static str {
+//!             concat!("Name: ", #name, ", Version: ", #version #(, ", Author: ", #authors)*)
+//!         }
+//!     });
+//!
+//!     Ok(quote::quote! { #module })
+//! }
+//!
+//! # let tokens = my_desc_mod(
+//! #     quote::quote!(name = "hello world", version = "0.2"),
+//! #     quote::quote!(mod abc {
+//! #         #[author("Alice", "Bob")]
+//! #         fn func1() {}
+//! #         #[author("Carol")]
+//! #         #[author("Dave")]
+//! #         fn func2() {}
+//! #     }),
+//! # ).unwrap();
+//! # let m: syn::ItemMod = syn::parse_quote! { #tokens };
+//! # assert_eq!(m, syn::parse_quote! {
+//! #     mod abc {
+//! #         fn func1() {}
+//! #         fn func2() {}
+//! #         fn my_desc() -> &'static str {
+//! #             concat!(
+//! #                 "Name: ", "hello world", ", Version: ", "0.2",
+//! #                 ", Author: ", "Alice", ", Author: ", "Bob",
+//! #                 ", Author: ", "Carol", ", Author: ", "Dave"
+//! #             )
+//! #         }
+//! #     }
+//! # });
+//! ```
+//!
+//! ```ignore
+//! // In your normal code
+//!
+//! #[derive(MyDescription, Default)]
+//! #[my_desc(name = "hello world", version = "0.2")]
+//! struct Hello {
+//!     #[author("Alice")]
+//!     a: i32,
+//!     #[author("Bob")]
+//!     b: String
+//! }
+//!
+//! let hello: Hello = Default::default();
+//! assert_eq!(hello.my_desc(), "Name: hello world, Version: 0.2, Author: Alice, Author: Bob");
+//!
+//! #[my_desc_mod(name = "hello world", version = "0.2")]
+//! mod abc {
+//!     #[author("Alice", "Bob")]
+//!     fn func1() {}
+//!
+//!     #[author("Carol")]
+//!     #[author("Dave")]
+//!     fn func2() {}
+//! }
+//!
+//! assert_eq!(
+//!     abc::my_desc(),
+//!     "Name: hello world, Version: 0.2, Author: Alice, Author: Bob, Author: Carol, Author: Dave"
+//! );
 //! ```
 //!
 //! #### Tuple Structs, Tuples and Vecs
@@ -331,7 +547,7 @@
 //! #[my_enum(c(id = 2, name = "world"))]
 //! struct ObjectC;
 //!
-//! // no inner parenthesis needed here due to flattening
+//! // No inner parenthesis needed here due to flattening
 //! #[derive(MyEnum)]
 //! #[my_enum(d = 3, name = "moon")]
 //! struct ObjectD;
@@ -409,7 +625,10 @@ extern crate proc_macro;
 
 /// Parses a Rust type out of a token stream.
 ///
-/// This is a small wrapper around [`syn::parse::Parser::parse`].
+/// Intended for use with [attribute
+/// macros](https://doc.rust-lang.org/stable/reference/procedural-macros.html#attribute-macros).
+/// This is a small wrapper around [`syn::parse::Parser::parse`] and
+/// [`ParseMetaItem::parse_meta_item_inline`].
 #[cfg(feature = "proc-macro")]
 #[inline]
 pub fn parse<T: ParseMetaItem>(attr: proc_macro::TokenStream) -> Result<T> {
@@ -423,7 +642,10 @@ pub fn parse<T: ParseMetaItem>(attr: proc_macro::TokenStream) -> Result<T> {
 
 /// Parses a Rust type out of a token stream.
 ///
-/// This is a small wrapper around [`syn::parse::Parser::parse2`].
+/// Intended for use with [attribute
+/// macros](https://doc.rust-lang.org/stable/reference/procedural-macros.html#attribute-macros).
+/// This is a small wrapper around [`syn::parse::Parser::parse2`] and
+/// [`ParseMetaItem::parse_meta_item_inline`].
 #[inline]
 pub fn parse2<T: ParseMetaItem>(attr: proc_macro2::TokenStream) -> Result<T> {
     syn::parse::Parser::parse2(
@@ -436,7 +658,9 @@ pub fn parse2<T: ParseMetaItem>(attr: proc_macro2::TokenStream) -> Result<T> {
 
 /// Parses a Rust type out of another type holding a list of [`syn::Attribute`].
 ///
-/// This is a small wrapper around [`ParseAttributes::parse_attributes`].
+/// Intended for use with [derive
+/// macros](https://doc.rust-lang.org/stable/reference/procedural-macros.html#derive-macros). This
+/// is a small wrapper around [`ParseAttributes::parse_attributes`].
 #[inline]
 pub fn parse_attributes<'t, T, R>(obj: &'t T) -> Result<R>
 where
@@ -449,7 +673,9 @@ where
 /// Extracts attributes out of another type holding a list of [`syn::Attribute`], then parses them
 /// into a Rust type.
 ///
-/// This is a small wrapper around [`ExtractAttributes::extract_attributes`].
+/// Intended for use with [derive
+/// macros](https://doc.rust-lang.org/stable/reference/procedural-macros.html#derive-macros). This
+/// is a small wrapper around [`ExtractAttributes::extract_attributes`].
 #[inline]
 pub fn extract_attributes<T, R>(obj: &mut T) -> Result<R>
 where
