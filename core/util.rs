@@ -93,11 +93,25 @@ impl Errors {
             Ok(())
         }
     }
-    /// Returns an iterator of token streams containing the [`std::compile_error`] invocations
-    /// generated with [`Error::to_compil_error`](syn::Error::to_compile_error).
+    /// Converts the error list into a token stream containing [`std::compile_error`] invocations.
+    ///
+    /// The errors are generated with [`Error::into_compile_error`](syn::Error::into_compile_error).
+    ///
+    /// Returns [`None`] if the list is empty.
+    #[inline]
+    pub fn into_compile_error(self) -> Option<TokenStream> {
+        self.errors.take().map(|e| e.into_compile_error())
+    }
+    /// Returns an iterator of token streams containing [`std::compile_error`] invocations.
+    ///
+    /// Each token stream will contain one invocation. The errors are generated with
+    /// [`Error::into_compile_error`](syn::Error::into_compile_error).
     #[inline]
     pub fn into_compile_errors(self) -> impl IntoIterator<Item = TokenStream> {
-        self.errors.take().into_iter().map(|e| e.to_compile_error())
+        self.errors
+            .take()
+            .into_iter()
+            .map(|e| e.into_compile_error())
     }
 }
 
