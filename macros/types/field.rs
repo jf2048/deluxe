@@ -1,4 +1,4 @@
-use deluxe_core::{parse_helpers, ParseAttributes, ParseMode, Result, SpannedValue};
+use deluxe_core::{parse_helpers, ParseAttributes, ParseMetaItem, ParseMode, Result, SpannedValue};
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
 use std::borrow::{Borrow, Cow};
@@ -23,7 +23,7 @@ impl FieldDefault {
     }
 }
 
-impl deluxe_core::ParseMetaItem for FieldDefault {
+impl ParseMetaItem for FieldDefault {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
         Ok(Self::Expr(input.parse()?))
@@ -57,7 +57,7 @@ impl Spanned for FieldFlatten {
     }
 }
 
-impl deluxe_core::ParseMetaItem for FieldFlatten {
+impl ParseMetaItem for FieldFlatten {
     fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
         let lookahead = input.lookahead1();
         if lookahead.peek(syn::LitBool) {
@@ -90,10 +90,8 @@ impl deluxe_core::ParseMetaItem for FieldFlatten {
                     if flatten.prefix.is_some() {
                         errors.push(span, "duplicate attribute for `prefix`");
                     }
-                    flatten.prefix = Some(deluxe_core::parse_named_meta_item_with!(
-                        input,
-                        span,
-                        deluxe_core::with::mod_path
+                    flatten.prefix = Some(deluxe_core::with::mod_path::parse_meta_item_named(
+                        input, span,
                     )?);
                 }
                 _ => {
@@ -132,7 +130,7 @@ impl Spanned for FieldContainer {
     }
 }
 
-impl deluxe_core::ParseMetaItem for FieldContainer {
+impl ParseMetaItem for FieldContainer {
     fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
         let lookahead = input.lookahead1();
         if lookahead.peek(syn::LitBool) {
@@ -168,13 +166,13 @@ impl deluxe_core::ParseMetaItem for FieldContainer {
                     if container.lifetime.is_some() {
                         errors.push(span, "duplicate attribute for `lifetime`");
                     }
-                    container.lifetime = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                    container.lifetime = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                 }
                 "ty" => {
                     if container.ty.is_some() {
                         errors.push(span, "duplicate attribute for `ty`");
                     }
-                    container.ty = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                    container.ty = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                 }
                 _ => {
                     errors.push_syn(parse_helpers::unknown_error(
@@ -438,14 +436,14 @@ impl<'f> Field<'f> {
                     // bind the return to a variable to span a type conversion error properly
                     quote_spanned! { m.span() =>
                         {
-                            let #value_ident = #crate_::parse_named_meta_item_with!(#input_ident, #span_ident, #m)?;
+                            let #value_ident = #m::parse_meta_item_named(#input_ident, #span_ident)?;
                             #value_ident
                         }
                     }
                 }
                 None => {
                     let func = quote_spanned! { ty.span() =>
-                        #priv_::parse_helpers::parse_named_meta_item::<#ty>
+                        <#ty as #crate_::ParseMetaItem>::parse_meta_item_named
                     };
                     quote_mixed! {
                         #func(input, span)?
@@ -1003,9 +1001,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                             if flatten.is_some() {
                                 errors.push(span, "duplicate attribute for `flatten`");
                             }
-                            flatten = Some(parse_helpers::parse_named_meta_item::<FieldFlatten>(
-                                input, span,
-                            )?);
+                            flatten = Some(FieldFlatten::parse_meta_item_named(input, span)?);
                         }
                         "append" => {
                             if !named {
@@ -1014,7 +1010,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                             if append.is_some() {
                                 errors.push(span, "duplicate attribute for `append`");
                             }
-                            append = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                            append = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         "rest" => {
                             if !named {
@@ -1023,19 +1019,19 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                             if rest.is_some() {
                                 errors.push(span, "duplicate attribute for `rest`");
                             }
-                            rest = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                            rest = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         "default" => {
                             if default.is_some() {
                                 errors.push(span, "duplicate attribute for `default`");
                             }
-                            default = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                            default = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         "with" => {
                             if with.is_some() {
                                 errors.push(span, "duplicate attribute for `with`");
                             }
-                            with = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                            with = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         "rename" => {
                             if !named {
@@ -1046,7 +1042,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                             } else {
                                 rename = Some(span);
                             }
-                            let name = parse_helpers::parse_named_meta_item(input, span)?;
+                            let name = <_>::parse_meta_item_named(input, span)?;
                             if field.ident.as_ref() == Some(&name) {
                                 errors.push(span, "cannot rename field to its own name");
                             } else if idents.contains(&name) {
@@ -1060,7 +1056,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                             if !named {
                                 errors.push(span, "`alias` not allowed on tuple struct field");
                             }
-                            let alias = parse_helpers::parse_named_meta_item(input, span)?;
+                            let alias = <_>::parse_meta_item_named(input, span)?;
                             if field.ident.as_ref() == Some(&alias) {
                                 errors.push(span, "cannot alias field to its own name");
                             } else if idents.contains(&alias) {
@@ -1074,13 +1070,13 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                             if container.is_some() {
                                 errors.push(span, "duplicate attribute for `container`");
                             }
-                            container = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                            container = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         "skip" => {
                             if skip.is_some() {
                                 errors.push(span, "duplicate attribute for `skip`");
                             }
-                            skip = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                            skip = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         _ => {
                             parse_helpers::check_unknown_attribute(

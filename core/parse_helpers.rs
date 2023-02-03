@@ -143,13 +143,13 @@ pub fn parse_empty_meta_item<T: ParseMetaItem>(
 /// streams are empty.
 pub fn parse_first<'s, T, F, S>(inputs: &[S], mode: ParseMode, func: F) -> Result<T>
 where
-    F: FnOnce(ParseStream) -> Result<T>,
+    F: FnOnce(ParseStream, ParseMode) -> Result<T>,
     S: Borrow<ParseBuffer<'s>>,
 {
     let mut iter = inputs.iter();
     if let Some(input) = iter.next() {
         let input = input.borrow();
-        let ret = func(input)?;
+        let ret = func(input, mode)?;
         parse_eof_or_trailing_comma(input)?;
         for next in iter {
             next.borrow().parse::<Nothing>()?;
@@ -160,7 +160,7 @@ where
             ParseMode::Named(span) => span,
             _ => Span::call_site(),
         };
-        parse_empty(span, func)
+        parse_empty(span, |input| func(input, mode))
     }
 }
 

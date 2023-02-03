@@ -1,5 +1,5 @@
 use super::*;
-use deluxe_core::{parse_helpers, ParseAttributes, ParseMode, Result};
+use deluxe_core::{parse_helpers, ParseAttributes, ParseMetaItem, ParseMode, Result};
 use proc_macro2::{Span, TokenStream};
 use quote::quote_spanned;
 use std::{borrow::Borrow, collections::HashSet};
@@ -23,7 +23,7 @@ impl Spanned for StructTransparent {
     }
 }
 
-impl deluxe_core::ParseMetaItem for StructTransparent {
+impl ParseMetaItem for StructTransparent {
     fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
         let lookahead = input.lookahead1();
         if lookahead.peek(syn::LitBool) {
@@ -64,26 +64,26 @@ impl deluxe_core::ParseMetaItem for StructTransparent {
                         errors.push(span, "duplicate attribute for `flatten_named`");
                     }
                     transparent.flatten_named =
-                        Some(parse_helpers::parse_named_meta_item(input, span)?);
+                        Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                 }
                 "flatten_unnamed" => {
                     if transparent.flatten_unnamed.is_some() {
                         errors.push(span, "duplicate attribute for `flatten_unnamed`");
                     }
                     transparent.flatten_unnamed =
-                        Some(parse_helpers::parse_named_meta_item(input, span)?);
+                        Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                 }
                 "append" => {
                     if transparent.append.is_some() {
                         errors.push(span, "duplicate attribute for `append`");
                     }
-                    transparent.append = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                    transparent.append = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                 }
                 "rest" => {
                     if transparent.rest.is_some() {
                         errors.push(span, "duplicate attribute for `rest`");
                     }
-                    transparent.rest = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                    transparent.rest = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                 }
                 _ => {
                     errors.push_syn(parse_helpers::unknown_error(
@@ -435,7 +435,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                                     );
                                 }
                             }
-                            transparent = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                            transparent = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         "allow_unknown_fields" => {
                             if matches!(struct_.fields, syn::Fields::Unnamed(_)) {
@@ -448,7 +448,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                                 errors.push(span, "duplicate attribute for `allow_unknown_fields`");
                             }
                             allow_unknown_fields =
-                                Some(parse_helpers::parse_named_meta_item(input, span)?);
+                                Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         "default" => {
                             if default.is_some() {
@@ -457,20 +457,16 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                             if matches!(struct_.fields, syn::Fields::Unit) {
                                 errors.push(span, "`default` not allowed on unit struct");
                             }
-                            default = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                            default = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         "crate" => {
                             if crate_.is_some() {
                                 errors.push(span, "duplicate attribute for `crate`");
                             }
-                            crate_ = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                            crate_ = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         "attributes" => {
-                            let attrs = deluxe_core::parse_named_meta_item_with!(
-                                input,
-                                span,
-                                mod_path_vec
-                            )?;
+                            let attrs = mod_path_vec::parse_meta_item_named(input, span)?;
                             attributes.extend(attrs.into_iter());
                         }
                         _ => {

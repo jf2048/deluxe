@@ -1,5 +1,5 @@
 use super::*;
-use deluxe_core::{parse_helpers, ParseAttributes, Result};
+use deluxe_core::{parse_helpers, ParseAttributes, ParseMetaItem, Result};
 use proc_macro2::{Span, TokenStream};
 use quote::quote_spanned;
 use std::collections::{BTreeSet, HashSet};
@@ -183,22 +183,16 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                             if default.is_some() {
                                 errors.push(span, "duplicate attribute for `default`");
                             }
-                            default = Some(parse_helpers::parse_named_meta_item::<FieldDefault>(
-                                input, span,
-                            )?);
+                            default = Some(FieldDefault::parse_meta_item_named(input, span)?);
                         }
                         "crate" => {
                             if crate_.is_some() {
                                 errors.push(span, "duplicate attribute for `crate`");
                             }
-                            crate_ = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                            crate_ = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         "attributes" => {
-                            let attrs = deluxe_core::parse_named_meta_item_with!(
-                                input,
-                                span,
-                                mod_path_vec
-                            )?;
+                            let attrs = mod_path_vec::parse_meta_item_named(input, span)?;
                             attributes.extend(attrs.into_iter());
                         }
                         "allow_unknown_fields" => {
@@ -206,7 +200,7 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                                 errors.push(span, "duplicate attribute for `allow_unknown_fields`");
                             }
                             allow_unknown_fields =
-                                Some(parse_helpers::parse_named_meta_item(input, span)?);
+                                Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         _ => {
                             parse_helpers::check_unknown_attribute(

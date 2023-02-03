@@ -66,6 +66,7 @@ impl ParseMode {
 /// - It can tell when an item is being parsed from a tuple struct or a struct with named fields.
 /// - It can be parsed "inline" by containers that consume the surrounding delimiters.
 /// - It can be parsed as a "flag" by containers that allow empty fields.
+/// - It can provide custom parsing when it is used with a named attribute.
 ///
 /// Implementations are provided for all [primitives](std::primitive) and [standard
 /// collections](std::collections), as well as for tuples, arrays, and for most parseable
@@ -103,7 +104,7 @@ pub trait ParseMetaItem: Sized {
         inputs: &[S],
         _mode: ParseMode,
     ) -> Result<Self> {
-        parse_first(inputs, _mode, |input| Self::parse_meta_item(input, _mode))
+        parse_first(inputs, _mode, Self::parse_meta_item)
     }
     /// Parses an empty flag value.
     ///
@@ -114,6 +115,17 @@ pub trait ParseMetaItem: Sized {
     #[inline]
     fn parse_meta_item_flag(_span: Span) -> Result<Self> {
         Err(flag_disallowed_error(_span))
+    }
+    /// Parses the item following a name.
+    ///
+    /// Only called when parsing a struct with named fields. Normally implementations will not need
+    /// to override this method.
+    ///
+    /// The default implementation simply calls
+    /// [`parse_helpers::parse_named_meta_item`](crate::parse_helpers::parse_named_meta_item).
+    #[inline]
+    fn parse_meta_item_named(input: ParseStream, span: Span) -> Result<Self> {
+        parse_named_meta_item(input, span)
     }
 }
 
@@ -438,7 +450,7 @@ macro_rules! impl_parse_meta_item_collection {
                 let paths = paths.into_iter();
                 parse_struct(inputs, |input, p, pspan| {
                     if paths.clone().any(|path| path.as_ref() == p) {
-                        let $item = parse_named_meta_item(input, pspan)?;
+                        let $item = <_>::parse_meta_item_named(input, pspan)?;
                         $push;
                     } else {
                         skip_named_meta_item(input);
@@ -516,7 +528,7 @@ macro_rules! impl_parse_meta_item_set {
                 parse_struct(inputs, |input, p, pspan| {
                     if paths.clone().any(|path| path.as_ref() == p) {
                         let span = input.span();
-                        let $item = parse_named_meta_item(input, pspan)?;
+                        let $item = <_>::parse_meta_item_named(input, pspan)?;
                         let span = input.span().join(span).unwrap();
                         if !$push {
                             errors.push(span, "Duplicate key");
@@ -570,7 +582,7 @@ macro_rules! impl_parse_meta_item_map {
                         let start = input.span();
                         let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
                         let span = input.span().join(start).unwrap();
-                        let $value = parse_named_meta_item(input, start)?;
+                        let $value = <_>::parse_meta_item_named(input, start)?;
                         if !$push {
                             errors.push(span, "Duplicate key");
                         }
@@ -607,7 +619,7 @@ macro_rules! impl_parse_meta_item_map {
                             skip_named_meta_item(input);
                         } else {
                             let span = input.span().join(start).unwrap();
-                            let $value = parse_named_meta_item(input, start)?;
+                            let $value = <_>::parse_meta_item_named(input, start)?;
                             if !$push {
                                 errors.push(span, "Duplicate key");
                             }
