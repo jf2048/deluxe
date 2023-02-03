@@ -293,17 +293,19 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///   path to a type containing associated functions.
 ///
 ///   The functions will be called as `module::parse_meta_item`, `module::parse_meta_item_inline`,
-///   and `modue::parse_meta_item_flag`. All three functions must be implemented, even if just to
-///   return an error. The signatures of these functions should match the equivalent functions in
-///   [`ParseMetaItem`](crate::ParseMetaItem), although they can be generic over the return type.
-///   Fields using this attribute are not required to implement
+///   `module::parse_meta_item_flag`, and `module::parse_meta_item_named`. All four functions must
+///   be implemented, even if just to return an error. The signatures of these functions should
+///   match the equivalent functions in [`ParseMetaItem`](crate::ParseMetaItem), although they can
+///   be generic over the return type. Fields using this attribute are not required to implement
 ///   [`ParseMetaItem`](crate::ParseMetaItem).
 ///
 ///   `parse_meta_item_inline` implementations can call
 ///   [`parse_first`](deluxe_core::parse_helpers::parse_first) to simply delegate the impementation
 ///   to `parse_meta_item`. `parse_meta_item_flag` implementations can call
 ///   [`flag_disallowed_error`](deluxe_core::parse_helpers::flag_disallowed_error) for a standard
-///   error if flags are not supported by the target type.
+///   error if flags are not supported by the target type. `parse_meta_item_named` implementations
+///   can call [`parse_named_meta_item_with!`](deluxe_core::parse_named_meta_item_with) using
+///   `self` as the last parameter for the standard behavior.
 ///
 ///   Some common parsers are available in the [`with`](deluxe_core::with) module.
 ///

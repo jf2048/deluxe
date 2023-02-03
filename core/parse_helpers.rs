@@ -99,7 +99,7 @@ pub fn parse_eof_or_trailing_comma(input: ParseStream) -> Result<()> {
     if let Some((tree, _)) = input.cursor().token_tree() {
         Err(syn::Error::new(
             tree.span(),
-            format_args!("unexpected token `{}`", tree),
+            format_args!("unexpected token `{tree}`"),
         ))
     } else {
         Ok(())
@@ -143,13 +143,13 @@ pub fn parse_empty_meta_item<T: ParseMetaItem>(
 /// streams are empty.
 pub fn parse_first<'s, T, F, S>(inputs: &[S], mode: ParseMode, func: F) -> Result<T>
 where
-    F: FnOnce(ParseStream) -> Result<T>,
+    F: FnOnce(ParseStream, ParseMode) -> Result<T>,
     S: Borrow<ParseBuffer<'s>>,
 {
     let mut iter = inputs.iter();
     if let Some(input) = iter.next() {
         let input = input.borrow();
-        let ret = func(input)?;
+        let ret = func(input, mode)?;
         parse_eof_or_trailing_comma(input)?;
         for next in iter {
             next.borrow().parse::<Nothing>()?;
@@ -160,7 +160,7 @@ where
             ParseMode::Named(span) => span,
             _ => Span::call_site(),
         };
-        parse_empty(span, func)
+        parse_empty(span, |input| func(input, mode))
     }
 }
 
@@ -474,9 +474,9 @@ pub fn join_path<'path>(prefix: &str, path: &'path str) -> Cow<'path, str> {
     if prefix.is_empty() {
         Cow::Borrowed(path)
     } else if prefix.ends_with("::") {
-        format!("{}{}", prefix, path).into()
+        format!("{prefix}{path}").into()
     } else {
-        format!("{}::{}", prefix, path).into()
+        format!("{prefix}::{path}").into()
     }
 }
 
@@ -574,7 +574,7 @@ pub fn disallow_paths(
             if let Some(span) = paths.get(path.as_ref()) {
                 errors.push(
                     *span,
-                    format_args!("`{}` not allowed with variant `{}`", path, cur),
+                    format_args!("`{path}` not allowed with variant `{cur}`"),
                 );
             }
         }
@@ -627,10 +627,10 @@ pub fn unknown_error(path: &str, span: Span, fields: &[&str]) -> Error {
     if let Some((_, closest)) = closest {
         Error::new(
             span,
-            format!("unknown field `{}`, did you mean `{}`?", path, closest),
+            format!("unknown field `{path}`, did you mean `{closest}`?"),
         )
     } else {
-        Error::new(span, format!("unknown field `{}`", path))
+        Error::new(span, format!("unknown field `{path}`"))
     }
 }
 

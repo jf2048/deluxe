@@ -1,5 +1,5 @@
 use super::*;
-use deluxe_core::{parse_helpers, ParseAttributes, Result, SpannedValue};
+use deluxe_core::{parse_helpers, ParseAttributes, ParseMetaItem, Result, SpannedValue};
 use proc_macro2::{Span, TokenStream};
 use quote::quote_spanned;
 use std::collections::{BTreeMap, BTreeSet};
@@ -75,12 +75,12 @@ impl<'v> Variant<'v> {
                 .enumerate()
                 .find_map(|(i, f)| {
                     (f.is_parsable() && !f.is_flat())
-                        .then(|| quote::format_ident!("field{}", i, span = Span::mixed_site()))
+                        .then(|| quote::format_ident!("field{i}", span = Span::mixed_site()))
                 })
                 .unwrap();
             return quote_mixed! {
                 #pre
-                match #priv_::parse_helpers::parse_named_meta_item(input, span)
+                match #crate_::ParseMetaItem::parse_meta_item_named(input, span)
                     .and_then(|v| {
                         #name = #priv_::Option::Some(v);
                         #post
@@ -537,9 +537,9 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                                     );
                                 }
                             }
-                            transparent = Some(parse_helpers::parse_named_meta_item::<
-                                Option<SpannedValue<bool>>,
-                            >(input, span)?);
+                            transparent = Some(
+                                <Option<SpannedValue<bool>>>::parse_meta_item_named(input, span)?,
+                            );
                         }
                         "allow_unknown_fields" => {
                             if matches!(variant.fields, syn::Fields::Unnamed(_)) {
@@ -552,15 +552,15 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                                 errors.push(span, "duplicate attribute for `allow_unknown_fields`");
                             }
                             allow_unknown_fields =
-                                Some(parse_helpers::parse_named_meta_item(input, span)?);
+                                Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         "flatten" => {
                             if flatten.is_some() {
                                 errors.push(span, "duplicate attribute for `flatten`");
                             }
-                            flatten = Some(parse_helpers::parse_named_meta_item::<
-                                Option<SpannedValue<bool>>,
-                            >(input, span)?);
+                            flatten = Some(<Option<SpannedValue<bool>>>::parse_meta_item_named(
+                                input, span,
+                            )?);
                         }
                         "rename" => {
                             if rename.is_some() {
@@ -568,22 +568,21 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                             } else {
                                 rename = Some(span);
                             }
-                            let name = parse_helpers::parse_named_meta_item(input, span)?;
+                            let name = <_>::parse_meta_item_named(input, span)?;
                             if variant.ident == name {
                                 errors.push(span, "cannot rename field to its own name");
                             } else if idents.contains(&name) {
-                                errors
-                                    .push(span, format_args!("alias already given for `{}`", name));
+                                errors.push(span, format_args!("alias already given for `{name}`"));
                             } else {
                                 idents.insert(0, name);
                             }
                         }
                         "alias" => {
-                            let alias = parse_helpers::parse_named_meta_item(input, span)?;
+                            let alias = <_>::parse_meta_item_named(input, span)?;
                             if variant.ident == alias {
                                 errors.push(span, "cannot alias field to its own name");
                             } else if idents.contains(&alias) {
-                                errors.push(span, format_args!("duplicate alias for `{}`", alias));
+                                errors.push(span, format_args!("duplicate alias for `{alias}`"));
                             } else {
                                 alias_span = Some(span);
                                 idents.push(alias);
@@ -593,7 +592,7 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                             if skip.is_some() {
                                 errors.push(span, "duplicate attribute for `skip`");
                             }
-                            skip = Some(parse_helpers::parse_named_meta_item(input, span)?);
+                            skip = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         _ => {
                             parse_helpers::check_unknown_attribute(

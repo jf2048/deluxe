@@ -26,11 +26,20 @@ pub mod from_str {
     where
         T::Err: std::fmt::Display,
     {
-        crate::parse_helpers::parse_first(inputs, mode, |input| parse_meta_item(input, mode))
+        crate::parse_helpers::parse_first(inputs, mode, parse_meta_item)
     }
     #[inline]
     pub fn parse_meta_item_flag<T>(span: proc_macro2::Span) -> Result<T> {
         Err(crate::parse_helpers::flag_disallowed_error(span))
+    }
+    pub fn parse_meta_item_named<T: FromStr>(
+        input: ParseStream,
+        span: proc_macro2::Span,
+    ) -> Result<T>
+    where
+        T::Err: std::fmt::Display,
+    {
+        crate::parse_named_meta_item_with!(input, span, self)
     }
 }
 
@@ -65,6 +74,15 @@ pub mod from_str_default {
     pub fn parse_meta_item_flag<T: Default>(_span: proc_macro2::Span) -> Result<T> {
         Ok(Default::default())
     }
+    pub fn parse_meta_item_named<T: FromStr + Default>(
+        input: ParseStream,
+        span: proc_macro2::Span,
+    ) -> Result<T>
+    where
+        T::Err: std::fmt::Display,
+    {
+        crate::parse_named_meta_item_with!(input, span, self)
+    }
 }
 
 /// Helpers for parsing a module path using
@@ -87,11 +105,15 @@ pub mod mod_path {
         inputs: &[S],
         mode: ParseMode,
     ) -> Result<syn::Path> {
-        crate::parse_helpers::parse_first(inputs, mode, |input| parse_meta_item(input, mode))
+        crate::parse_helpers::parse_first(inputs, mode, parse_meta_item)
     }
     #[inline]
     pub fn parse_meta_item_flag(span: proc_macro2::Span) -> Result<syn::Path> {
         Err(crate::parse_helpers::flag_disallowed_error(span))
+    }
+    #[inline]
+    pub fn parse_meta_item_named(input: ParseStream, span: proc_macro2::Span) -> Result<syn::Path> {
+        crate::parse_named_meta_item_with!(input, span, self)
     }
 }
 
@@ -125,11 +147,18 @@ pub mod quoted {
         inputs: &[S],
         mode: ParseMode,
     ) -> Result<T> {
-        crate::parse_helpers::parse_first(inputs, mode, |input| parse_meta_item(input, mode))
+        crate::parse_helpers::parse_first(inputs, mode, parse_meta_item)
     }
     #[inline]
     pub fn parse_meta_item_flag<T: ParseMetaItem>(span: proc_macro2::Span) -> Result<T> {
         T::parse_meta_item_flag(span)
+    }
+    #[inline]
+    pub fn parse_meta_item_named<T: ParseMetaItem>(
+        input: ParseStream,
+        span: proc_macro2::Span,
+    ) -> Result<T> {
+        crate::parse_named_meta_item_with!(input, span, self)
     }
 }
 
@@ -157,11 +186,18 @@ pub mod maybe_quoted {
         inputs: &[S],
         mode: ParseMode,
     ) -> Result<T> {
-        crate::parse_helpers::parse_first(inputs, mode, |input| parse_meta_item(input, mode))
+        crate::parse_helpers::parse_first(inputs, mode, parse_meta_item)
     }
     #[inline]
     pub fn parse_meta_item_flag<T: ParseMetaItem>(span: proc_macro2::Span) -> Result<T> {
         T::parse_meta_item_flag(span)
+    }
+    #[inline]
+    pub fn parse_meta_item_named<T: ParseMetaItem>(
+        input: ParseStream,
+        span: proc_macro2::Span,
+    ) -> Result<T> {
+        crate::parse_named_meta_item_with!(input, span, self)
     }
 }
 
@@ -183,11 +219,18 @@ pub mod syn {
         inputs: &[S],
         mode: ParseMode,
     ) -> Result<T> {
-        crate::parse_helpers::parse_first(inputs, mode, |input| parse_meta_item(input, mode))
+        crate::parse_helpers::parse_first(inputs, mode, parse_meta_item)
     }
     #[inline]
     pub fn parse_meta_item_flag<T>(span: proc_macro2::Span) -> Result<T> {
         Err(crate::parse_helpers::flag_disallowed_error(span))
+    }
+    #[inline]
+    pub fn parse_meta_item_named<T: Parse>(
+        input: ParseStream,
+        span: proc_macro2::Span,
+    ) -> Result<T> {
+        crate::parse_named_meta_item_with!(input, span, self)
     }
 }
 
@@ -217,11 +260,18 @@ pub mod syn_quoted {
         inputs: &[S],
         mode: ParseMode,
     ) -> Result<T> {
-        crate::parse_helpers::parse_first(inputs, mode, |input| parse_meta_item(input, mode))
+        crate::parse_helpers::parse_first(inputs, mode, parse_meta_item)
     }
     #[inline]
     pub fn parse_meta_item_flag<T>(span: proc_macro2::Span) -> Result<T> {
         Err(crate::parse_helpers::flag_disallowed_error(span))
+    }
+    #[inline]
+    pub fn parse_meta_item_named<T: Parse>(
+        input: ParseStream,
+        span: proc_macro2::Span,
+    ) -> Result<T> {
+        crate::parse_named_meta_item_with!(input, span, self)
     }
 }
 
@@ -290,6 +340,13 @@ macro_rules! define_with_optional {
                 _span: $crate::Span,
             ) -> $crate::Result<$crate::Option<$ty>> {
                 $crate::Result::Ok($crate::Option::None)
+            }
+            #[inline]
+            pub fn parse_meta_item_named(
+                input: $crate::syn::parse::ParseStream,
+                span: $crate::Span,
+            ) -> $crate::Result<$crate::Option<$ty>> {
+                $crate::parse_named_meta_item_with!(input, span, self)
             }
         }
     };
@@ -372,6 +429,13 @@ macro_rules! define_with_collection {
                 _span: $crate::Span,
             ) -> $crate::Result<$($coll)? $(:: $colls)* <$ty>> {
                 $crate::Result::Ok($crate::Default::default())
+            }
+            #[inline]
+            pub fn parse_meta_item_named(
+                input: $crate::syn::parse::ParseStream,
+                span: $crate::Span,
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$ty>> {
+                $crate::parse_named_meta_item_with!(input, span, self)
             }
             #[inline]
             pub fn field_count() -> $crate::Option<$crate::primitive::usize> {
@@ -538,6 +602,13 @@ macro_rules! define_with_map {
                 $crate::Result::Ok($crate::Default::default())
             }
             #[inline]
+            pub fn parse_meta_item_named(
+                input: $crate::syn::parse::ParseStream,
+                span: $crate::Span,
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$key, $val>> {
+                $crate::parse_named_meta_item_with!(input, span, self)
+            }
+            #[inline]
             pub fn field_count() -> $crate::Option<$crate::primitive::usize> {
                 $crate::Option::None
             }
@@ -601,5 +672,12 @@ pub mod identity {
     #[inline]
     pub fn parse_meta_item_flag<T: ParseMetaItem>(span: proc_macro2::Span) -> Result<T> {
         T::parse_meta_item_flag(span)
+    }
+    #[inline]
+    pub fn parse_meta_item_named<T: ParseMetaItem>(
+        input: ParseStream,
+        span: proc_macro2::Span,
+    ) -> Result<T> {
+        crate::parse_named_meta_item_with!(input, span, self)
     }
 }

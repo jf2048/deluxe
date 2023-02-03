@@ -20,13 +20,13 @@ where
             use std::fmt::Write;
             let n = crate::parse_helpers::join_path(prefix, n);
             if names.is_empty() {
-                write!(names, "`{}`", n).unwrap();
+                write!(names, "`{n}`").unwrap();
             } else {
-                write!(names, ", `{}`", n).unwrap();
+                write!(names, ", `{n}`").unwrap();
             }
         }
         for span in present_spans {
-            errors.push(span.span(), format!("only one of {} is allowed", names));
+            errors.push(span.span(), format!("only one of {names} is allowed"));
         }
     }
 }
