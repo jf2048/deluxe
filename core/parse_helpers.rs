@@ -555,7 +555,27 @@ pub fn skip_meta_item(input: ParseStream) {
             }
             Ok(((), cur))
         })
-        .unwrap();
+        .ok();
+}
+
+/// Consumes all tokens left in a list of streams.
+#[inline]
+pub fn skip_all<'s, S>(inputs: &[S])
+where
+    S: Borrow<ParseBuffer<'s>>,
+{
+    for input in inputs {
+        input
+            .borrow()
+            .step(|cursor| {
+                let mut cur = *cursor;
+                while let Some((_, next)) = cur.token_tree() {
+                    cur = next;
+                }
+                Ok(((), cur))
+            })
+            .ok();
+    }
 }
 
 #[inline]

@@ -1670,6 +1670,41 @@ fn positional_and_named() {
     PartialEq,
     Debug,
 )]
+struct FlattenedEnum {
+    #[deluxe(flatten)]
+    simple: MySimpleEnum,
+}
+
+#[test]
+fn flattened_enum() {
+    use ::std::prelude::v1::*;
+    let parse = parse_meta::<FlattenedEnum>;
+
+    ::std::assert_eq!(
+        parse(q! { { a } }).unwrap(),
+        FlattenedEnum {
+            simple: MySimpleEnum::A
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { b } }).unwrap(),
+        FlattenedEnum {
+            simple: MySimpleEnum::B
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { {} }).unwrap_err_string(),
+        "expected one of `a`, `b`, `c`"
+    );
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
 struct FlagStruct {
     myflag: ::deluxe::Flag,
     #[deluxe(default)]
