@@ -583,6 +583,7 @@
 //! case, the container will be cloned into the structure.
 
 #![deny(missing_docs)]
+#![deny(unsafe_code)]
 
 #[doc(hidden)]
 pub mod ____private {

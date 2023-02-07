@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 #![no_implicit_prelude]
 
 use ::quote::quote as q;

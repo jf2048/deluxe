@@ -4,6 +4,7 @@
 //! crate for an overview.
 
 #![deny(missing_docs)]
+#![deny(unsafe_code)]
 
 #[macro_use]
 mod util;
