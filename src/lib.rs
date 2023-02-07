@@ -624,7 +624,7 @@ pub use deluxe_macros::*;
 #[cfg(feature = "proc-macro")]
 extern crate proc_macro;
 
-/// Parses a Rust type out of a token stream.
+/// Parses a required Rust type out of a token stream.
 ///
 /// Intended for use with [attribute
 /// macros](https://doc.rust-lang.org/stable/reference/procedural-macros.html#attribute-macros).
@@ -641,7 +641,7 @@ pub fn parse<T: ParseMetaItem>(attr: proc_macro::TokenStream) -> Result<T> {
     )
 }
 
-/// Parses a Rust type out of a token stream.
+/// Parses a required Rust type out of a token stream.
 ///
 /// Intended for use with [attribute
 /// macros](https://doc.rust-lang.org/stable/reference/procedural-macros.html#attribute-macros).
@@ -657,7 +657,7 @@ pub fn parse2<T: ParseMetaItem>(attr: proc_macro2::TokenStream) -> Result<T> {
     )
 }
 
-/// Parses a Rust type out of another type holding a list of [`syn::Attribute`].
+/// Parses a required Rust type out of another type holding a list of [`syn::Attribute`].
 ///
 /// Intended for use with [derive
 /// macros](https://doc.rust-lang.org/stable/reference/procedural-macros.html#derive-macros). This
@@ -672,7 +672,7 @@ where
 }
 
 /// Extracts attributes out of another type holding a list of [`syn::Attribute`], then parses them
-/// into a Rust type.
+/// into a required Rust type.
 ///
 /// Intended for use with [derive
 /// macros](https://doc.rust-lang.org/stable/reference/procedural-macros.html#derive-macros). This
@@ -684,4 +684,88 @@ where
     R: ExtractAttributes<T>,
 {
     R::extract_attributes(obj)
+}
+
+/// Parses a Rust type out of a token stream, returning a default value on failure.
+///
+/// Calls [`parse`] and returns the result. Upon failure, [`Default::default`] will be returned and
+/// any errors will be appended to `errors`. This function should be preferred when parsing
+/// multiple attributes, so the errors from all of them can be accumulated instead of returning
+/// early.
+#[cfg(feature = "proc-macro")]
+#[inline]
+pub fn parse_optional<T: ParseMetaItem + Default>(
+    attr: proc_macro::TokenStream,
+    errors: &Errors,
+) -> T {
+    match parse(attr) {
+        Ok(t) => t,
+        Err(e) => {
+            errors.push_syn(e);
+            Default::default()
+        }
+    }
+}
+
+/// Parses a Rust type out of a token stream, returning a default value on failure.
+///
+/// Calls [`parse2`] and returns the result. Upon failure, [`Default::default`] will be returned
+/// and any errors will be appended to `errors`. This function should be preferred when parsing
+/// multiple attributes, so the errors from all of them can be accumulated instead of returning
+/// early.
+#[inline]
+pub fn parse2_optional<T: ParseMetaItem + Default>(
+    attr: proc_macro2::TokenStream,
+    errors: &Errors,
+) -> T {
+    match parse2(attr) {
+        Ok(t) => t,
+        Err(e) => {
+            errors.push_syn(e);
+            Default::default()
+        }
+    }
+}
+
+/// Parses a Rust type out of another type holding a list of [`syn::Attribute`], returning a default value on failure.
+///
+/// Calls [`parse_attributes`] and returns the result. Upon failure, [`Default::default`] will be
+/// returned and any errors will be appended to `errors`. This function should be preferred when
+/// parsing multiple attributes, so the errors from all of them can be accumulated instead of
+/// returning early.
+#[inline]
+pub fn parse_attributes_optional<'t, T, R>(obj: &'t T, errors: &Errors) -> R
+where
+    T: HasAttributes,
+    R: ParseAttributes<'t, T> + Default,
+{
+    match parse_attributes(obj) {
+        Ok(t) => t,
+        Err(e) => {
+            errors.push_syn(e);
+            Default::default()
+        }
+    }
+}
+
+/// Extracts attributes out of another type holding a list of [`syn::Attribute`], then parses them
+/// into a Rust type, returning a default value on failure.
+///
+/// Calls [`extract_attributes`] and returns the result. Upon failure, [`Default::default`] will be
+/// returned and any errors will be appended to `errors`. This function should be preferred when
+/// parsing multiple attributes, so the errors from all of them can be accumulated instead of
+/// returning early.
+#[inline]
+pub fn extract_attributes_optional<T, R>(obj: &mut T, errors: &Errors) -> R
+where
+    T: HasAttributes,
+    R: ExtractAttributes<T> + Default,
+{
+    match extract_attributes(obj) {
+        Ok(t) => t,
+        Err(e) => {
+            errors.push_syn(e);
+            Default::default()
+        }
+    }
 }
