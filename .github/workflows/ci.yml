@@ -56,3 +56,20 @@ jobs:
         with:
           command: clippy
           args: --workspace
+
+  docs:
+    name: Deluxe Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rust-docs
+      - uses: actions-rs/cargo@v1
+        with:
+          command: doc
+          args: --workspace
