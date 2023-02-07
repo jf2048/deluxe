@@ -190,7 +190,7 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                         "and_then" => {
                             match errors.push_result(<_>::parse_meta_item_named(input, span)) {
                                 Some(e) => and_thens.push(e),
-                                None => parse_helpers::skip_named_meta_item(input),
+                                None => parse_helpers::skip_meta_item(input),
                             }
                         }
                         "attributes" => {
@@ -198,7 +198,7 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                                 .push_result(mod_path_vec::parse_meta_item_named(input, span))
                             {
                                 Some(attrs) => attributes.extend(attrs.into_iter()),
-                                None => parse_helpers::skip_named_meta_item(input),
+                                None => parse_helpers::skip_meta_item(input),
                             }
                         }
                         "allow_unknown_fields" => allow_unknown_fields.parse_named_item(
@@ -214,7 +214,7 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                                 Self::field_names(),
                                 &errors,
                             );
-                            parse_helpers::skip_named_meta_item(input);
+                            parse_helpers::skip_meta_item(input);
                         }
                     }
                     Ok(())

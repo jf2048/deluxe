@@ -141,7 +141,7 @@ impl<T> FieldStatus<T> {
                 if self.is_none() {
                     *self = FieldStatus::ParseError;
                 }
-                skip_named_meta_item(input);
+                skip_meta_item(input);
             }
         }
     }
@@ -163,7 +163,7 @@ impl<T> FieldStatus<T> {
             Some(v) => *self = FieldStatus::Some(v),
             None => {
                 *self = FieldStatus::ParseError;
-                skip_named_meta_item(input);
+                skip_meta_item(input);
             }
         }
     }
@@ -511,7 +511,7 @@ where
 /// Callers will typically check the field name for a match, and then call
 /// [`parse_named_meta_item`] or [`parse_named_meta_item_with`](fn@parse_named_meta_item_with).
 ///
-/// Callers will usually want to use [`check_unknown_attribute`] and [`skip_named_meta_item`] when
+/// Callers will usually want to use [`check_unknown_attribute`] and [`skip_meta_item`] when
 /// encountering any unknown fields.
 ///
 /// Returns [`Err`] on any parsing errors or the first failure of `func`.
@@ -541,7 +541,7 @@ where
 ///
 /// Consumes all tokens up until the comma. Does not consume the comma.
 #[inline]
-pub fn skip_named_meta_item(input: ParseStream) {
+pub fn skip_meta_item(input: ParseStream) {
     input
         .step(|cursor| {
             let mut cur = *cursor;

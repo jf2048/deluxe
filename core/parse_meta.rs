@@ -221,7 +221,7 @@ pub trait ParseMetaAppend: Sized {
     /// Parse the item from a group of inline named contexts.
     ///
     /// Fields with names matching any path in `paths` will be appended. Non-matching fields should
-    /// be skipped with [`crate::parse_helpers::skip_named_meta_item`].
+    /// be skipped with [`crate::parse_helpers::skip_meta_item`].
     fn parse_meta_append<'s, S, I, P>(inputs: &[S], paths: I) -> Result<Self>
     where
         S: Borrow<ParseBuffer<'s>>,
@@ -238,7 +238,7 @@ pub trait ParseMetaRest: Sized {
     /// Parse the item from a group of inline named contexts.
     ///
     /// Fields with names in `exclude` should be should be skipped with
-    /// [`crate::parse_helpers::skip_named_meta_item`].
+    /// [`crate::parse_helpers::skip_meta_item`].
     fn parse_meta_rest<'s, S: Borrow<ParseBuffer<'s>>>(
         inputs: &[S],
         exclude: &[&str],
@@ -468,7 +468,7 @@ macro_rules! impl_parse_meta_item_collection {
                         let $item = <_>::parse_meta_item_named(input, pspan)?;
                         $push;
                     } else {
-                        skip_named_meta_item(input);
+                        skip_meta_item(input);
                     }
                     Ok(())
                 })?;
@@ -549,7 +549,7 @@ macro_rules! impl_parse_meta_item_set {
                             errors.push(span, "Duplicate key");
                         }
                     } else {
-                        skip_named_meta_item(input);
+                        skip_meta_item(input);
                     }
                     Ok(())
                 })?;
@@ -631,7 +631,7 @@ macro_rules! impl_parse_meta_item_map {
                         let start = input.span();
                         let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
                         if exclude.contains(&path_to_string($key.borrow()).as_str()) {
-                            skip_named_meta_item(input);
+                            skip_meta_item(input);
                         } else {
                             let span = input.span().join(start).unwrap();
                             let $value = <_>::parse_meta_item_named(input, start)?;

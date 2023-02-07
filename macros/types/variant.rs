@@ -93,7 +93,7 @@ impl<'v> Variant<'v> {
                         value = #priv_::FieldStatus::Some(v);
                     }
                 } else {
-                    #priv_::parse_helpers::skip_named_meta_item(input);
+                    #priv_::parse_helpers::skip_meta_item(input);
                     if value.is_none() {
                         value = #priv_::FieldStatus::ParseError;
                     }
@@ -149,7 +149,7 @@ impl<'v> Variant<'v> {
                                 #priv_::parse_helpers::check_unknown_attribute(
                                     p, span, allowed, &errors,
                                 );
-                                #priv_::parse_helpers::skip_named_meta_item(input);
+                                #priv_::parse_helpers::skip_meta_item(input);
                                 #crate_::Result::Ok(())
                             },
                         );
@@ -215,7 +215,7 @@ impl<'v> Variant<'v> {
                 if let #priv_::Option::Some(v) = errors.push_result(res) {
                     value = #priv_::FieldStatus::Some(v);
                 } else {
-                    #priv_::parse_helpers::skip_named_meta_item(input);
+                    #priv_::parse_helpers::skip_meta_item(input);
                     if value.is_none() {
                         value = #priv_::FieldStatus::ParseError;
                     }
@@ -369,7 +369,7 @@ impl<'v> Variant<'v> {
                 if validate {
                     let _ = #priv_::parse_helpers::parse_struct(inputs, |input, p, span| {
                         #priv_::parse_helpers::check_unknown_attribute(p, span, allowed, &errors);
-                        #priv_::parse_helpers::skip_named_meta_item(input);
+                        #priv_::parse_helpers::skip_meta_item(input);
                         #crate_::Result::Ok(())
                     });
                 }
@@ -443,7 +443,7 @@ impl<'v> Variant<'v> {
                 match cur {
                     #(#variant_matches)*
                     _ => {
-                        #priv_::parse_helpers::skip_named_meta_item(input);
+                        #priv_::parse_helpers::skip_meta_item(input);
                     }
                 }
                 #crate_::Result::Ok(())
@@ -557,7 +557,7 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                                     span,
                                     "`allow_unknown_fields` not allowed on tuple variant",
                                 );
-                                parse_helpers::skip_named_meta_item(input);
+                                parse_helpers::skip_meta_item(input);
                             } else {
                                 allow_unknown_fields.parse_named_item(
                                     "allow_unknown_fields",
@@ -610,7 +610,7 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                                         }
                                     }
                                 }
-                                None => parse_helpers::skip_named_meta_item(input),
+                                None => parse_helpers::skip_meta_item(input),
                             }
                         }
                         "skip" => skip.parse_named_item("skip", input, span, &errors),
@@ -621,7 +621,7 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                                 Self::field_names(),
                                 &errors,
                             );
-                            parse_helpers::skip_named_meta_item(input);
+                            parse_helpers::skip_meta_item(input);
                         }
                     }
                     Ok(())

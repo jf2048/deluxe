@@ -95,7 +95,7 @@ impl ParseMetaItem for FieldFlatten {
                 ),
                 _ => {
                     errors.push_syn(parse_helpers::unknown_error(path, span, &["prefix"]));
-                    parse_helpers::skip_named_meta_item(input);
+                    parse_helpers::skip_meta_item(input);
                 }
             }
             Ok(())
@@ -167,7 +167,7 @@ impl ParseMetaItem for FieldContainer {
                         span,
                         &["lifetime", "ty"],
                     ));
-                    parse_helpers::skip_named_meta_item(input);
+                    parse_helpers::skip_meta_item(input);
                 }
             }
             Ok(())
@@ -844,7 +844,7 @@ impl<'f> Field<'f> {
                                     #(#field_matches)*
                                     _ => {
                                         #validate
-                                        #priv_::parse_helpers::skip_named_meta_item(input);
+                                        #priv_::parse_helpers::skip_meta_item(input);
                                     }
                                 }
                                 #crate_::Result::Ok(())
@@ -1007,7 +1007,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                         "append" => {
                             if !named {
                                 errors.push(span, "`append` not allowed on tuple struct field");
-                                parse_helpers::skip_named_meta_item(input);
+                                parse_helpers::skip_meta_item(input);
                             } else {
                                 append.parse_named_item("append", input, span, &errors);
                             }
@@ -1015,7 +1015,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                         "rest" => {
                             if !named {
                                 errors.push(span, "`rest` not allowed on tuple struct field");
-                                parse_helpers::skip_named_meta_item(input);
+                                parse_helpers::skip_meta_item(input);
                             } else {
                                 rest.parse_named_item("rest", input, span, &errors);
                             }
@@ -1071,7 +1071,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                                             }
                                         }
                                     }
-                                    None => parse_helpers::skip_named_meta_item(input),
+                                    None => parse_helpers::skip_meta_item(input),
                                 }
                             }
                         }
@@ -1086,7 +1086,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                                 Self::field_names(),
                                 &errors,
                             );
-                            parse_helpers::skip_named_meta_item(input);
+                            parse_helpers::skip_meta_item(input);
                         }
                     }
                     Ok(())

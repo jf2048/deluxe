@@ -73,7 +73,7 @@ impl ParseMetaItem for StructTransparent {
                         span,
                         &["flatten_named", "flatten_unnamed", "append", "rest"],
                     ));
-                    parse_helpers::skip_named_meta_item(input);
+                    parse_helpers::skip_meta_item(input);
                 }
             }
             Ok(())
@@ -452,7 +452,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                                     span,
                                     "`allow_unknown_fields` not allowed on tuple struct",
                                 );
-                                parse_helpers::skip_named_meta_item(input);
+                                parse_helpers::skip_meta_item(input);
                             } else {
                                 allow_unknown_fields.parse_named_item(
                                     "allow_unknown_fields",
@@ -465,7 +465,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                         "default" => {
                             if matches!(struct_.fields, syn::Fields::Unit) {
                                 errors.push(span, "`default` not allowed on unit struct");
-                                parse_helpers::skip_named_meta_item(input);
+                                parse_helpers::skip_meta_item(input);
                             } else {
                                 default.parse_named_item("default", input, span, &errors);
                             }
@@ -474,7 +474,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                         "and_then" => {
                             match errors.push_result(<_>::parse_meta_item_named(input, span)) {
                                 Some(e) => and_thens.push(e),
-                                None => parse_helpers::skip_named_meta_item(input),
+                                None => parse_helpers::skip_meta_item(input),
                             }
                         }
                         "attributes" => {
@@ -482,7 +482,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                                 .push_result(mod_path_vec::parse_meta_item_named(input, span))
                             {
                                 Some(attrs) => attributes.extend(attrs.into_iter()),
-                                None => parse_helpers::skip_named_meta_item(input),
+                                None => parse_helpers::skip_meta_item(input),
                             }
                         }
                         _ => {
@@ -492,7 +492,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                                 Self::field_names(),
                                 &errors,
                             );
-                            parse_helpers::skip_named_meta_item(input);
+                            parse_helpers::skip_meta_item(input);
                         }
                     }
                     Ok(())

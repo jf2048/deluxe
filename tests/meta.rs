@@ -1503,7 +1503,7 @@ impl ::deluxe::ParseMetaAppend for CustomAppendSum {
             if paths.clone().any(|path| path.as_ref() == p) {
                 value += ::deluxe_core::parse_helpers::parse_named_meta_item::<i32>(input, pspan)?;
             } else {
-                ::deluxe_core::parse_helpers::skip_named_meta_item(input);
+                ::deluxe_core::parse_helpers::skip_meta_item(input);
             }
             ::deluxe::Result::Ok(())
         })?;
