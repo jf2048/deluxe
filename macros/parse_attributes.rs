@@ -335,6 +335,10 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
         Mode::Parse => None,
         Mode::Extract => Some(quote_mixed! { ? }),
     };
+    let path_name_unwrap = attributes.first().map(|path| {
+        let path = deluxe_core::parse_helpers::path_to_string(path);
+        quote_mixed! { .or(#priv_::Option::Some(#path)) }
+    });
 
     quote_mixed! {
         impl #impl_generics #trait_ for #ident #type_generics #where_clause {
@@ -347,6 +351,7 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
                     #priv_::parse_helpers::#get_tokens::<Self, _>(obj) #tokens_try,
                     |inputs, spans| {
                         let span = #priv_::parse_helpers::first_span(spans);
+                        let path_name = #priv_::parse_helpers::first_path_name(spans) #path_name_unwrap;
                         let _mode = #crate_::ParseMode::Named(span);
                         #parse
                     }

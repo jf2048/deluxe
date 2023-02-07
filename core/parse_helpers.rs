@@ -602,31 +602,31 @@ fn parse_tokens<T, F: FnOnce(ParseStream) -> Result<T>>(input: TokenStream, func
 pub fn parse_struct_attr_tokens<T, I, F, R>(inputs: I, func: F) -> Result<R>
 where
     T: quote::ToTokens,
-    I: IntoIterator<Item = (T, Span)>,
-    F: FnOnce(&[ParseBuffer], &[Span]) -> Result<R>,
+    I: IntoIterator<Item = (T, String, Span)>,
+    F: FnOnce(&[ParseBuffer], &[(String, Span)]) -> Result<R>,
 {
     fn parse_next<T, I, F, R>(
         mut iter: I,
         buffers: Vec<ParseBuffer>,
-        mut spans: Vec<Span>,
+        mut paths: Vec<(String, Span)>,
         func: F,
     ) -> Result<R>
     where
         T: quote::ToTokens,
-        I: Iterator<Item = (T, Span)>,
-        F: FnOnce(&[ParseBuffer], &[Span]) -> Result<R>,
+        I: Iterator<Item = (T, String, Span)>,
+        F: FnOnce(&[ParseBuffer], &[(String, Span)]) -> Result<R>,
     {
-        if let Some((tokens, span)) = iter.next() {
+        if let Some((tokens, name, span)) = iter.next() {
             let tokens = tokens.into_token_stream();
             parse_tokens(tokens, |stream| {
                 let content = Paren::parse_delimited(stream)?;
                 let mut buffers: Vec<ParseBuffer> = buffers; // move to shrink the lifetime
                 buffers.push(content);
-                spans.push(span);
-                parse_next(iter, buffers, spans, func)
+                paths.push((name, span));
+                parse_next(iter, buffers, paths, func)
             })
         } else {
-            let r = func(&buffers, &spans)?;
+            let r = func(&buffers, &paths)?;
             for buffer in buffers {
                 parse_eof_or_trailing_comma(&buffer)?;
             }
@@ -844,14 +844,14 @@ pub fn check_unknown_attribute(path: &str, span: Span, fields: &[&str], errors: 
 /// corresponding path [`Span`](proc_macro2::Span) from a matched
 /// [`ParseAttributes`](crate::ParseAttributes).
 #[inline]
-pub fn ref_tokens<'t, P, T>(input: &'t T) -> impl Iterator<Item = (&TokenStream, Span)>
+pub fn ref_tokens<'t, P, T>(input: &'t T) -> impl Iterator<Item = (&TokenStream, String, Span)>
 where
     P: crate::ParseAttributes<'t, T>,
     T: crate::HasAttributes,
 {
-    T::attrs(input)
-        .iter()
-        .filter_map(|a| P::path_matches(&a.path).then(|| (&a.tokens, a.path.span())))
+    T::attrs(input).iter().filter_map(|a| {
+        P::path_matches(&a.path).then(|| (&a.tokens, path_to_string(&a.path), a.path.span()))
+    })
 }
 
 /// Returns an iterator of [`TokenStream`](proc_macro2::TokenStream)s and the corresponding path
@@ -860,7 +860,7 @@ where
 /// All matching attributes will be removed from `input`. The resulting
 /// [`TokenStream`](proc_macro2::TokenStream)s are moved into the iterator.
 #[inline]
-pub fn take_tokens<E, T>(input: &mut T) -> Result<impl Iterator<Item = (TokenStream, Span)>>
+pub fn take_tokens<E, T>(input: &mut T) -> Result<impl Iterator<Item = (TokenStream, String, Span)>>
 where
     E: crate::ExtractAttributes<T>,
     T: crate::HasAttributes,
@@ -871,7 +871,7 @@ where
     while index < attrs.len() {
         if E::path_matches(&attrs[index].path) {
             let attr = attrs.remove(index);
-            tokens.push((attr.tokens, attr.path.span()));
+            tokens.push((attr.tokens, path_to_string(&attr.path), attr.path.span()));
         } else {
             index += 1;
         }
@@ -879,12 +879,20 @@ where
     Ok(tokens.into_iter())
 }
 
-/// Gets the first [`Span`](proc_macro2::Span) in a list of spans.
+/// Gets the first [`Span`](proc_macro2::Span) in a list of path names and spans.
 ///
 /// Returns [`Span::call_site`](proc_macro2::Span::call_site) if the slice is empty.
 #[inline]
-pub fn first_span(spans: &[Span]) -> Span {
-    spans.first().cloned().unwrap_or_else(Span::call_site)
+pub fn first_span(spans: &[(String, Span)]) -> Span {
+    spans.first().map(|s| s.1).unwrap_or_else(Span::call_site)
+}
+
+/// Gets the first string in a list of path names and spans.
+///
+/// Returns [`None`] if the slice is empty.
+#[inline]
+pub fn first_path_name(spans: &[(String, Span)]) -> Option<&str> {
+    spans.first().map(|s| s.0.as_str())
 }
 
 /// Forks all streams in a [`ParseStream`](syn::parse::ParseStream) slice into a new [`Vec`] of

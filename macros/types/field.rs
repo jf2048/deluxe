@@ -550,14 +550,29 @@ impl<'f> Field<'f> {
                                     }
                                 } else {
                                     let path = f.parse_path(crate_, "ParseMetaItem");
+                                    let name_format = quote_mixed! { #priv_::format!("{}", name) };
+                                    let name_format = if *mode == TokenMode::ParseMetaItem {
+                                        name_format
+                                    } else {
+                                        quote_mixed! {
+                                            if let #priv_::Option::Some(path_name) = path_name {
+                                                #priv_::format!("{} on #[{}]", name, path_name)
+                                            } else {
+                                                #name_format
+                                            }
+                                        }
+                                    };
                                     quote_mixed! {
                                         if #name.is_none() {
                                             let span = _mode.to_full_span(inputs);
-                                            let index = #priv_::format!("{}", index + #cur_index #extra_counts);
-                                            if let #priv_::Option::Some(v) = errors.push_result(#path::missing_meta_item(
-                                                &index,
-                                                span,
-                                            )) {
+                                            let name = index + #cur_index #extra_counts;
+                                            let name = #name_format;
+                                            if let #priv_::Option::Some(v) = errors.push_result(
+                                                #path::missing_meta_item(
+                                                    &name,
+                                                    span,
+                                                ),
+                                            ) {
                                                 #name = #priv_::FieldStatus::Some(v);
                                             }
                                         }
@@ -566,14 +581,28 @@ impl<'f> Field<'f> {
                             } else if !f.is_flat() {
                                 let field = f.field.ident.as_ref().unwrap().to_string();
                                 let path = f.parse_path(crate_, "ParseMetaItem");
+                                let name_format = quote_mixed! { #priv_::format!("`{}`", name) };
+                                let name_format = if *mode == TokenMode::ParseMetaItem {
+                                    name_format
+                                } else {
+                                    quote_mixed! {
+                                        if let #priv_::Option::Some(path_name) = path_name {
+                                            #priv_::format!("#[{}({})]", path_name, name)
+                                        } else {
+                                            #name_format
+                                        }
+                                    }
+                                };
                                 quote_mixed! {
                                     if #name.is_none() {
                                         let name = #priv_::parse_helpers::join_path(prefix, #field);
-                                        let name = #priv_::format!("`{}`", name);
-                                        if let #priv_::Option::Some(v) = errors.push_result(#path::missing_meta_item(
-                                            &name,
-                                            span,
-                                        )) {
+                                        let name = #name_format;
+                                        if let #priv_::Option::Some(v) = errors.push_result(
+                                            #path::missing_meta_item(
+                                                &name,
+                                                span,
+                                            ),
+                                        ) {
                                             #name = #priv_::FieldStatus::Some(v);
                                         }
                                     }
