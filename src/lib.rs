@@ -612,8 +612,8 @@ pub mod ____private {
 
 pub use deluxe_core::{
     define_with_collection, define_with_map, define_with_optional, parse_named_meta_item_with,
-    with, Error, Errors, ExtractAttributes, HasAttributes, ParseAttributes, ParseMetaItem,
-    ParseMode, Result,
+    validations, with, Error, Errors, ExtractAttributes, HasAttributes, ParseAttributes,
+    ParseMetaItem, ParseMode, Result, SpannedValue,
 };
 #[doc(hidden)]
 pub use deluxe_core::{
