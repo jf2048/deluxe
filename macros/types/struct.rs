@@ -109,6 +109,7 @@ pub struct Struct<'s> {
     pub transparent: Option<StructTransparent>,
     pub allow_unknown_fields: Option<bool>,
     pub attributes: Vec<syn::Path>,
+    pub and_thens: Vec<syn::Expr>,
 }
 
 impl<'s> Struct<'s> {
@@ -130,6 +131,7 @@ impl<'s> Struct<'s> {
             "default",
             "crate",
             "attributes",
+            "and_then",
             "allow_unknown_fields",
         ]
     }
@@ -176,6 +178,24 @@ impl<'s> Struct<'s> {
         };
         let (mut pre, post) =
             Field::to_pre_post_tokens(&self.fields, orig_fields, crate_, &field_data);
+        let post = if self.and_thens.is_empty() {
+            post
+        } else {
+            let and_thens = &self.and_thens;
+            quote_mixed! {
+                let ret = {
+                    #post
+                };
+                let errors = #crate_::Errors::new();
+                let ret = ret.ok();
+                #(let ret = ret.and_then(|v| {
+                    let f = #and_thens;
+                    errors.push_result(f(v))
+                });)*
+                errors.check()?;
+                #crate_::Result::Ok(ret.unwrap())
+            }
+        };
         let default_set = self.default.as_ref().map(|d| {
             let expr = d.to_expr(&syn::parse_quote! { Self }, priv_);
             quote_mixed! {
@@ -386,6 +406,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                 let mut allow_unknown_fields = FieldStatus::None;
                 let mut default = FieldStatus::None;
                 let mut crate_ = FieldStatus::None;
+                let mut and_thens = Vec::new();
                 let mut attributes = Vec::new();
                 let fields = struct_
                     .fields
@@ -450,6 +471,12 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                             }
                         }
                         "crate" => crate_.parse_named_item("crate", input, span, &errors),
+                        "and_then" => {
+                            match errors.push_result(<_>::parse_meta_item_named(input, span)) {
+                                Some(e) => and_thens.push(e),
+                                None => parse_helpers::skip_named_meta_item(input),
+                            }
+                        }
                         "attributes" => {
                             match errors
                                 .push_result(mod_path_vec::parse_meta_item_named(input, span))
@@ -532,6 +559,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                     transparent: transparent.into(),
                     allow_unknown_fields: allow_unknown_fields.into(),
                     attributes,
+                    and_thens,
                 })
             },
         )

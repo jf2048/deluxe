@@ -160,6 +160,32 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///   definitions to use [`flatten`](#deluxeflatten-1), [`append`](#deluxeappend) or
 ///   [`rest`](#deluxerest) on this type.
 ///
+/// - ##### `#[deluxe(and_then = expr)]`
+///
+///   Executes an additional function ater parsing to perform additional transformations or
+///   validation on the input.
+///
+///   This attribute is a simple wrapper around
+///   [`Result::and_then`](deluxe_core::Result::and_then). The function returned by `expr` must
+///   conform to the signature <code>fn(T) -> [deluxe::Result](deluxe_core::Result)&lt;T></code>
+///   where `T` is the type of the struct/enum being parsed. Returning
+///   [`Err`](deluxe_core::Result::Err) will cause the entire parse to fail.
+///
+///   This attribute can be specified multiple times. When multiple `and_then` attributes are
+///   present, Deluxe will execute each function in order the attributs were specified.
+///
+///   ```ignore
+///   #[derive(deluxe::ParseMetaItem)]
+///   #[deluxe(and_then = Self::validate)]
+///   struct Data(i32);
+///   impl Data {
+///       fn validate(self) -> deluxe::Result<Self> {
+///           // ... perform some checks here ...
+///           Ok(self)
+///       }
+///   }
+///   ```
+///
 /// - ##### `#[deluxe(allow_unknown_fields)]`
 ///
 ///   Ignore any tokens and do not generate an error when an unknown field is encountered.

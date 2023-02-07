@@ -1729,3 +1729,115 @@ fn flag() {
         "field with type `Flag` can only be a named field with no value",
     );
 }
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+#[deluxe(and_then = Self::validate_min, and_then = Self::validate_max)]
+struct AndThens {
+    a: ::deluxe::SpannedValue<i32>,
+    b: i32,
+}
+
+impl AndThens {
+    fn validate_min(self) -> ::deluxe::Result<Self> {
+        if *self.a + self.b <= -10 {
+            ::deluxe::Result::Err(::deluxe::Error::new(
+                ::syn::spanned::Spanned::span(&self.a),
+                "sum of a and b must be above -10",
+            ))
+        } else {
+            ::deluxe::Result::Ok(self)
+        }
+    }
+    fn validate_max(self) -> ::deluxe::Result<Self> {
+        if *self.a + self.b >= 10 {
+            ::deluxe::Result::Err(::deluxe::Error::new(
+                ::syn::spanned::Spanned::span(&self.a),
+                "sum of a and b must be below 10",
+            ))
+        } else {
+            ::deluxe::Result::Ok(self)
+        }
+    }
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+#[deluxe(and_then = Self::validate_min, and_then = Self::validate_max)]
+enum AndThensEnum {
+    Values {
+        a: ::deluxe::SpannedValue<i32>,
+        b: i32,
+    },
+    Empty,
+}
+
+impl AndThensEnum {
+    fn validate_min(self) -> ::deluxe::Result<Self> {
+        if let Self::Values { a, b } = &self {
+            if **a + *b <= -10 {
+                return ::deluxe::Result::Err(::deluxe::Error::new(
+                    ::syn::spanned::Spanned::span(a),
+                    "sum of a and b must be above -10",
+                ));
+            }
+        }
+        ::deluxe::Result::Ok(self)
+    }
+    fn validate_max(self) -> ::deluxe::Result<Self> {
+        if let Self::Values { a, b } = &self {
+            if **a + *b >= 10 {
+                return ::deluxe::Result::Err(::deluxe::Error::new(
+                    ::syn::spanned::Spanned::span(a),
+                    "sum of a and b must be below 10",
+                ));
+            }
+        }
+        ::deluxe::Result::Ok(self)
+    }
+}
+
+#[test]
+fn and_then() {
+    use ::std::prelude::v1::*;
+    let parse = parse_meta::<AndThens>;
+
+    ::std::assert_eq!(
+        parse(q! { { a = 5, b = 4 } }).unwrap(),
+        AndThens { a: 5.into(), b: 4 }
+    );
+    ::std::assert_eq!(
+        parse(q! { { a = -5, b = -6 } }).unwrap_err_string(),
+        "sum of a and b must be above -10",
+    );
+    ::std::assert_eq!(
+        parse(q! { { a = 5, b = 6 } }).unwrap_err_string(),
+        "sum of a and b must be below 10",
+    );
+
+    let parse = parse_meta::<AndThensEnum>;
+
+    ::std::assert_eq!(parse(q! { { empty } }).unwrap(), AndThensEnum::Empty);
+    ::std::assert_eq!(
+        parse(q! { { values(a = 5, b = 4) } }).unwrap(),
+        AndThensEnum::Values { a: 5.into(), b: 4 }
+    );
+    ::std::assert_eq!(
+        parse(q! { { values(a = -5, b = -6) } }).unwrap_err_string(),
+        "sum of a and b must be above -10",
+    );
+    ::std::assert_eq!(
+        parse(q! { { values(a = 5, b = 6) } }).unwrap_err_string(),
+        "sum of a and b must be below 10",
+    );
+}

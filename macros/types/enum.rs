@@ -1,7 +1,7 @@
 use super::*;
 use deluxe_core::{
     parse_helpers::{self, FieldStatus},
-    ParseAttributes, Result,
+    ParseAttributes, ParseMetaItem, Result,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::quote_spanned;
@@ -14,13 +14,14 @@ pub struct Enum<'e> {
     pub default: Option<FieldDefault>,
     pub crate_: Option<syn::Path>,
     pub attributes: Vec<syn::Path>,
+    pub and_thens: Vec<syn::Expr>,
     pub allow_unknown_fields: Option<bool>,
 }
 
 impl<'e> Enum<'e> {
     #[inline]
     pub fn field_names() -> &'static [&'static str] {
-        &["default", "crate", "attributes"]
+        &["default", "crate", "attributes", "and_then"]
     }
     #[inline]
     pub fn to_inline_parsing_tokens(&self, crate_: &syn::Path, mode: TokenMode) -> TokenStream {
@@ -33,6 +34,7 @@ impl<'e> Enum<'e> {
             crate_,
             mode,
             default.as_ref().map(|d| d.as_ref()),
+            &self.and_thens,
             self.allow_unknown_fields.unwrap_or(false),
         )
     }
@@ -178,12 +180,19 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                 let errors = crate::Errors::new();
                 let mut default = FieldStatus::<FieldDefault>::None;
                 let mut crate_ = FieldStatus::None;
+                let mut and_thens = Vec::new();
                 let mut attributes = Vec::new();
                 let mut allow_unknown_fields = FieldStatus::None;
                 errors.push_result(parse_helpers::parse_struct(inputs, |input, path, span| {
                     match path {
                         "default" => default.parse_named_item("default", input, span, &errors),
                         "crate" => crate_.parse_named_item("crate", input, span, &errors),
+                        "and_then" => {
+                            match errors.push_result(<_>::parse_meta_item_named(input, span)) {
+                                Some(e) => and_thens.push(e),
+                                None => parse_helpers::skip_named_meta_item(input),
+                            }
+                        }
                         "attributes" => {
                             match errors
                                 .push_result(mod_path_vec::parse_meta_item_named(input, span))
@@ -296,6 +305,7 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                     default: default.into(),
                     crate_: crate_.into(),
                     attributes,
+                    and_thens,
                     allow_unknown_fields: allow_unknown_fields.into(),
                 })
             },

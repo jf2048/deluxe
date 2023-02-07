@@ -919,25 +919,21 @@ impl<'f> Field<'f> {
                 )
             }
             syn::Fields::Unit => {
-                let variant = match target {
-                    ParseTarget::Init(variant) => variant,
-                    _ => None,
-                }
-                .into_iter();
-                let variant2 = variant.clone();
                 let inline = if mode == TokenMode::ParseMetaItem {
                     quote_mixed! {
+                        #pre
                         <() as #crate_::ParseMetaItem>::parse_meta_item_inline(inputs, _mode)?;
-                        #crate_::Result::Ok(Self #(::#variant)*)
+                        #post
                     }
                 } else {
                     quote_mixed! {
+                        #pre
                         for input in inputs {
                             #priv_::parse_helpers::parse_eof_or_trailing_comma(
                                 #priv_::Borrow::borrow(input),
                             )?;
                         }
-                        #crate_::Result::Ok(Self #(::#variant)*)
+                        #post
                     }
                 };
                 (
@@ -951,7 +947,8 @@ impl<'f> Field<'f> {
                     },
                     Some(inline),
                     Some(quote_mixed! {
-                        #crate_::Result::Ok(Self #(::#variant2)*)
+                        #pre
+                        #post
                     }),
                 )
             }

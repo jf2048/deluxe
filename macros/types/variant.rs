@@ -257,6 +257,7 @@ impl<'v> Variant<'v> {
         crate_: &syn::Path,
         mode: TokenMode,
         target: Option<&syn::Expr>,
+        and_thens: &[syn::Expr],
         allow_unknown_fields: bool,
     ) -> TokenStream {
         let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
@@ -454,6 +455,11 @@ impl<'v> Variant<'v> {
                 #(#flat_matches else)*
                 #empty_match
             }
+            let value = value.into_option();
+            #(let value = value.and_then(|v| {
+                let f = #and_thens;
+                errors.push_result(f(v))
+            });)*
             errors.check()?;
             #crate_::Result::Ok(value.unwrap())
         }
