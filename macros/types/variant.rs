@@ -461,6 +461,7 @@ impl<'v> Variant<'v> {
                 errors.push_result(f(v))
             });)*
             errors.check()?;
+            #priv_::parse_helpers::skip_all(inputs);
             #crate_::Result::Ok(value.unwrap())
         }
     }
