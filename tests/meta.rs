@@ -1669,10 +1669,25 @@ fn positional_and_named() {
     ::deluxe::ParseMetaItem,
     PartialEq,
     Debug,
+    Default,
+)]
+enum KwEnum {
+    #[default]
+    A,
+    B,
+    Const,
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
 )]
 struct FlattenedEnum {
     #[deluxe(flatten)]
-    simple: MySimpleEnum,
+    kw: KwEnum,
 }
 
 #[test]
@@ -1682,19 +1697,19 @@ fn flattened_enum() {
 
     ::std::assert_eq!(
         parse(q! { { a } }).unwrap(),
-        FlattenedEnum {
-            simple: MySimpleEnum::A
-        }
+        FlattenedEnum { kw: KwEnum::A }
     );
     ::std::assert_eq!(
         parse(q! { { b } }).unwrap(),
-        FlattenedEnum {
-            simple: MySimpleEnum::B
-        }
+        FlattenedEnum { kw: KwEnum::B }
+    );
+    ::std::assert_eq!(
+        parse(q! { { const } }).unwrap(),
+        FlattenedEnum { kw: KwEnum::Const }
     );
     ::std::assert_eq!(
         parse(q! { {} }).unwrap_err_string(),
-        "expected one of `a`, `b`, `c`"
+        "expected one of `a`, `b`, `const`"
     );
 }
 

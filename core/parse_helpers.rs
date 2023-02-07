@@ -502,6 +502,34 @@ where
     Ok(counter)
 }
 
+/// Parses a path allowing any keywords as identifiers, and containing no path arguments.
+pub fn parse_any_path(input: ParseStream) -> Result<syn::Path> {
+    Ok(syn::Path {
+        leading_colon: input.parse()?,
+        segments: {
+            let mut segments = syn::punctuated::Punctuated::new();
+            loop {
+                if input.cursor().ident().is_none() {
+                    break;
+                }
+                let ident = <syn::Ident as syn::ext::IdentExt>::parse_any(input)?;
+                segments.push_value(syn::PathSegment::from(ident));
+                if !input.peek(syn::Token![::]) {
+                    break;
+                }
+                let punct = input.parse()?;
+                segments.push_punct(punct);
+            }
+            if segments.is_empty() {
+                return Err(input.error("expected path"));
+            } else if segments.trailing_punct() {
+                return Err(input.error("expected path segment"));
+            }
+            segments
+        },
+    })
+}
+
 /// Parses an inline struct with named fields from a stream.
 ///
 /// Each stream in `inputs` will be parsed in order, first parsing a path by calling
@@ -527,7 +555,7 @@ where
             if input.is_empty() {
                 break;
             }
-            let path = input.call(syn::Path::parse_mod_style)?;
+            let path = input.call(parse_any_path)?;
             func(input, path_to_string(&path).as_str(), path.span())?;
             if !input.is_empty() {
                 input.parse::<Token![,]>()?;

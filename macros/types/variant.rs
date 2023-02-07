@@ -460,8 +460,8 @@ impl<'v> Variant<'v> {
                 let f = #and_thens;
                 errors.push_result(f(v))
             });)*
-            errors.check()?;
             #priv_::parse_helpers::skip_all(inputs);
+            errors.check()?;
             #crate_::Result::Ok(value.unwrap())
         }
     }

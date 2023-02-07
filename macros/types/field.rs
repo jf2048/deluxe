@@ -91,7 +91,7 @@ impl ParseMetaItem for FieldFlatten {
                     input,
                     span,
                     &errors,
-                    deluxe_core::with::mod_path::parse_meta_item_named,
+                    deluxe_core::with::any_path::parse_meta_item_named,
                 ),
                 _ => {
                     errors.push_syn(parse_helpers::unknown_error(path, span, &["prefix"]));
