@@ -130,6 +130,41 @@ pub mod mod_path {
     }
 }
 
+/// Helpers for parsing a path allowing any keywords as identifiers, and containing no path arguments.
+///
+/// The field should be a `syn::Path`. Can be used on a field by specifying the module, like
+/// `#[deluxe(with = deluxe::with::any_path)]`
+pub mod any_path {
+    #![allow(missing_docs)]
+    use crate::{ParseMode, Result};
+    use std::borrow::Borrow;
+    use syn::parse::{ParseBuffer, ParseStream};
+
+    #[inline]
+    pub fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<syn::Path> {
+        input.call(crate::parse_helpers::parse_any_path)
+    }
+    #[inline]
+    pub fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        mode: ParseMode,
+    ) -> Result<syn::Path> {
+        crate::parse_helpers::parse_first(inputs, mode, parse_meta_item)
+    }
+    #[inline]
+    pub fn parse_meta_item_flag(span: proc_macro2::Span) -> Result<syn::Path> {
+        Err(crate::parse_helpers::flag_disallowed_error(span))
+    }
+    #[inline]
+    pub fn parse_meta_item_named(input: ParseStream, span: proc_macro2::Span) -> Result<syn::Path> {
+        crate::parse_named_meta_item_with!(input, span, self)
+    }
+    #[inline]
+    pub fn missing_meta_item(name: &str, span: proc_macro2::Span) -> Result<syn::Path> {
+        Err(crate::parse_helpers::missing_field_error(name, span))
+    }
+}
+
 /// Helpers for parsing any type that implements [`ParseMetaItem`](crate::ParseMetaItem) parsed out
 /// of a quoted string first.
 ///
