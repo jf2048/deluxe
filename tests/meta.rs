@@ -1642,3 +1642,70 @@ fn positional_and_named() {
         )
     );
 }
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+struct FlagStruct {
+    #[deluxe(default)]
+    myflag: ::deluxe::Flag,
+    #[deluxe(default)]
+    value: i32,
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+// should always error when encountering the field
+struct FlagTupleStruct(::deluxe::Flag);
+
+#[test]
+fn flag() {
+    use ::std::prelude::v1::*;
+    let parse = parse_meta::<FlagStruct>;
+
+    ::std::assert_eq!(
+        parse(q! { { myflag } }).unwrap(),
+        FlagStruct {
+            myflag: true.into(),
+            value: 0,
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { {} }).unwrap(),
+        FlagStruct {
+            myflag: false.into(),
+            value: 0,
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { myflag, value = 123 } }).unwrap(),
+        FlagStruct {
+            myflag: true.into(),
+            value: 123,
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { myflag = true } }).unwrap_err_string(),
+        "unexpected token",
+    );
+    ::std::assert_eq!(
+        parse(q! { { myflag(true) } }).unwrap_err_string(),
+        "unexpected token",
+    );
+
+    let parse = parse_meta::<FlagTupleStruct>;
+
+    ::std::assert_eq!(
+        parse(q! { (myflag) }).unwrap_err_string(),
+        "field with type `Flag` can only be a named field with no value",
+    );
+}

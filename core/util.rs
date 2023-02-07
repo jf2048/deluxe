@@ -413,3 +413,107 @@ impl<T> DerefMut for SpannedValue<T> {
         &mut self.value
     }
 }
+
+/// A value for a boolean named field that can only be a name (set) or omitted (unset).
+///
+/// Similar to an <code>[Option]&lt;[SpannedValue]&lt;[bool]>></code> but does not allow `=` or
+/// `()` after the field name. Thus, it is only useful with named fields. Parsing this out of a
+/// tuple struct or tuple variant will always result in a parse error.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct Flag(Option<Span>);
+
+impl Flag {
+    /// Creates a new `true` flag value spanned to `span`.
+    #[inline]
+    pub fn set(span: Span) -> Self {
+        Self(Some(span))
+    }
+    /// Creates a new `true` flag value spanned to [`Span::call_site`].
+    #[inline]
+    pub fn set_call_site() -> Self {
+        Self(Some(Span::call_site()))
+    }
+    /// Creates a new `false` flag value.
+    #[inline]
+    pub fn unset() -> Self {
+        Self(None)
+    }
+    /// Returns `true` if the flag was set.
+    #[inline]
+    pub fn is_set(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
+impl From<bool> for Flag {
+    #[inline]
+    fn from(value: bool) -> Self {
+        Self(value.then(Span::call_site))
+    }
+}
+
+impl From<Flag> for bool {
+    #[inline]
+    fn from(value: Flag) -> Self {
+        value.is_set()
+    }
+}
+
+impl Eq for Flag {}
+
+impl PartialEq for Flag {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.is_set() == other.is_set()
+    }
+}
+
+impl PartialEq<bool> for Flag {
+    #[inline]
+    fn eq(&self, other: &bool) -> bool {
+        self.is_set() == *other
+    }
+}
+
+impl PartialEq<Flag> for bool {
+    #[inline]
+    fn eq(&self, other: &Flag) -> bool {
+        *self == other.is_set()
+    }
+}
+
+impl Spanned for Flag {
+    #[inline]
+    fn span(&self) -> Span {
+        self.0.unwrap_or_else(Span::call_site)
+    }
+}
+
+impl ParseMetaItem for Flag {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
+        Self::parse_meta_item_inline(&[input], mode)
+    }
+    #[inline]
+    fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        _mode: ParseMode,
+    ) -> Result<Self> {
+        Err(Error::new(
+            crate::parse_helpers::inputs_span(inputs),
+            "field with type `Flag` can only be a named field with no value",
+        ))
+    }
+    #[inline]
+    fn parse_meta_item_flag(span: Span) -> Result<Self> {
+        Ok(Self(Some(span)))
+    }
+    #[inline]
+    fn parse_meta_item_named(input: ParseStream, span: Span) -> Result<Self> {
+        if input.is_empty() || input.peek(syn::Token![,]) {
+            Self::parse_meta_item_flag(span)
+        } else {
+            Err(Error::new(input.span(), "unexpected token"))
+        }
+    }
+}
