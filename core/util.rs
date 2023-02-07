@@ -22,6 +22,7 @@ pub type Result<T> = syn::Result<T>;
 #[derive(Clone, Debug, Default)]
 #[repr(transparent)]
 pub struct Errors {
+    // RefCell here so this can be re-entrant when used from parser combinators
     errors: RefCell<Option<Error>>,
 }
 

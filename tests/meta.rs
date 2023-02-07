@@ -162,6 +162,10 @@ fn parse_named() {
         parse(q! { {a(123), b("asdf"), a(456)} }).unwrap_err_string(),
         "duplicate attribute for `a`"
     );
+    ::std::assert_eq!(
+        parse(q! { {a(123), b("asdf"), a(456), a("456") } }).unwrap_err_string(),
+        "duplicate attribute for `a`, duplicate attribute for `a`, expected integer literal"
+    );
 }
 
 #[derive(
@@ -636,6 +640,14 @@ fn parse_simple_enum() {
     ::std::assert_eq!(parse(q! { { a } }).unwrap(), MySimpleEnum::A);
     ::std::assert_eq!(parse(q! { { b } }).unwrap(), MySimpleEnum::B);
     ::std::assert_eq!(parse(q! { { c } }).unwrap(), MySimpleEnum::C);
+    ::std::assert_eq!(
+        parse(q! { { a, b } }).unwrap_err_string(),
+        "expected only one enum variant, got `a` and `b`"
+    );
+    ::std::assert_eq!(
+        parse(q! { { a, c } }).unwrap_err_string(),
+        "expected only one enum variant, got `a` and `c`"
+    );
     ::std::assert_eq!(
         parse(q! { { d } }).unwrap_err_string(),
         "unknown field `d`, expected one of `a`, `b`, `c`"
@@ -1232,8 +1244,16 @@ fn enum_allow_unknown() {
         EnumAllow::Known { value: 50 }
     );
     ::std::assert_eq!(
+        parse(q! { { known(value(50)), unknown(value(51)) } }).unwrap_err_string(),
+        "expected only one enum variant, got `known` and `unknown`"
+    );
+    ::std::assert_eq!(
         parse(q! { { known(value(50), another("thing")) } }).unwrap_err_string(),
         "unknown field `another`"
+    );
+    ::std::assert_eq!(
+        parse(q! { { known(value(50), another("thing")), unknown(value("50")) } }).unwrap_err_string(),
+        "unknown field `another`, expected only one enum variant, got `known` and `unknown`, expected integer literal"
     );
     ::std::assert_eq!(
         parse(q! { { unknown(value(50)) } }).unwrap(),

@@ -1,5 +1,8 @@
 use super::*;
-use deluxe_core::{parse_helpers, ParseAttributes, ParseMetaItem, ParseMode, Result};
+use deluxe_core::{
+    parse_helpers::{self, FieldStatus},
+    ParseAttributes, ParseMetaItem, ParseMode, Result,
+};
 use proc_macro2::{Span, TokenStream};
 use quote::quote_spanned;
 use std::{borrow::Borrow, collections::HashSet};
@@ -48,43 +51,22 @@ impl ParseMetaItem for StructTransparent {
         inputs: &[S],
         mode: ParseMode,
     ) -> Result<Self> {
-        let mut transparent = Self {
-            span: mode.to_full_span(inputs),
-            value: true,
-            flatten_named: None,
-            flatten_unnamed: None,
-            append: None,
-            rest: None,
-        };
         let errors = crate::Errors::new();
-        let res = parse_helpers::parse_struct(inputs, |input, path, span| {
+        let span = mode.to_full_span(inputs);
+        let mut flatten_named = FieldStatus::None;
+        let mut flatten_unnamed = FieldStatus::None;
+        let mut append = FieldStatus::None;
+        let mut rest = FieldStatus::None;
+        errors.push_result(parse_helpers::parse_struct(inputs, |input, path, span| {
             match path {
                 "flatten_named" => {
-                    if transparent.flatten_named.is_some() {
-                        errors.push(span, "duplicate attribute for `flatten_named`");
-                    }
-                    transparent.flatten_named =
-                        Some(ParseMetaItem::parse_meta_item_named(input, span)?);
+                    flatten_named.parse_named_item("flatten_named", input, span, &errors)
                 }
                 "flatten_unnamed" => {
-                    if transparent.flatten_unnamed.is_some() {
-                        errors.push(span, "duplicate attribute for `flatten_unnamed`");
-                    }
-                    transparent.flatten_unnamed =
-                        Some(ParseMetaItem::parse_meta_item_named(input, span)?);
+                    flatten_unnamed.parse_named_item("flatten_unnamed", input, span, &errors)
                 }
-                "append" => {
-                    if transparent.append.is_some() {
-                        errors.push(span, "duplicate attribute for `append`");
-                    }
-                    transparent.append = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
-                }
-                "rest" => {
-                    if transparent.rest.is_some() {
-                        errors.push(span, "duplicate attribute for `rest`");
-                    }
-                    transparent.rest = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
-                }
+                "append" => append.parse_named_item("append", input, span, &errors),
+                "rest" => rest.parse_named_item("rest", input, span, &errors),
                 _ => {
                     errors.push_syn(parse_helpers::unknown_error(
                         path,
@@ -95,12 +77,16 @@ impl ParseMetaItem for StructTransparent {
                 }
             }
             Ok(())
-        });
-        if let Err(err) = res {
-            errors.extend(err);
-        }
+        }));
         errors.check()?;
-        Ok(transparent)
+        Ok(Self {
+            span,
+            value: true,
+            flatten_named: flatten_named.into(),
+            flatten_unnamed: flatten_unnamed.into(),
+            append: append.into(),
+            rest: rest.into(),
+        })
     }
     #[inline]
     fn parse_meta_item_flag(span: Span) -> Result<Self> {
@@ -226,17 +212,17 @@ impl<'s> Struct<'s> {
             }
             let parse = quote_mixed! {
                 #pre
-                #name = #priv_::Option::Some(#parse_ty::parse_meta_item(input, _mode)?);
+                #name = #priv_::FieldStatus::Some(#parse_ty::parse_meta_item(input, _mode)?);
                 #post
             };
             let inline = Some(quote_mixed! {
                 #pre
-                #name = #priv_::Option::Some(#parse_ty::parse_meta_item_inline(inputs, _mode)?);
+                #name = #priv_::FieldStatus::Some(#parse_ty::parse_meta_item_inline(inputs, _mode)?);
                 #post
             });
             let flag = Some(quote_mixed! {
                 #pre
-                #name = #priv_::Option::Some(#parse_ty::parse_meta_item_flag(span)?);
+                #name = #priv_::FieldStatus::Some(#parse_ty::parse_meta_item_flag(span)?);
                 #post
             });
             let struct_ident = &orig.ident;
@@ -282,7 +268,7 @@ impl<'s> Struct<'s> {
                             validate: #priv_::bool,
                         ) -> #crate_::Result<Self> {
                             #pre
-                            #name = #priv_::Option::Some(#flat_ty::parse_meta_flat_named(inputs, mode, prefix, validate)?);
+                            #name = #priv_::FieldStatus::Some(#flat_ty::parse_meta_flat_named(inputs, mode, prefix, validate)?);
                             #post
                         }
                     }
@@ -305,7 +291,7 @@ impl<'s> Struct<'s> {
                             index: #priv_::usize,
                         ) -> #crate_::Result<Self> {
                             #pre
-                            #name = #priv_::Option::Some(#flat_ty::parse_meta_flat_unnamed(inputs, mode, index)?);
+                            #name = #priv_::FieldStatus::Some(#flat_ty::parse_meta_flat_unnamed(inputs, mode, index)?);
                             #post
                         }
                     }
@@ -323,7 +309,7 @@ impl<'s> Struct<'s> {
                             exclude: &[&#priv_::str],
                         ) -> #crate_::Result<Self> {
                             #pre
-                            #name = #priv_::Option::Some(#rest_ty::parse_meta_rest(inputs, exclude)?);
+                            #name = #priv_::FieldStatus::Some(#rest_ty::parse_meta_rest(inputs, exclude)?);
                             #post
                         }
                     }
@@ -344,7 +330,7 @@ impl<'s> Struct<'s> {
                             P: #priv_::AsRef<#priv_::str>
                         {
                             #pre
-                            #name = #priv_::Option::Some(#append_ty::parse_meta_append(inputs, paths)?);
+                            #name = #priv_::FieldStatus::Some(#append_ty::parse_meta_append(inputs, paths)?);
                             #post
                         }
                     }
@@ -396,46 +382,48 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                     _ => return Err(syn::Error::new_spanned(i, "wrong DeriveInput type")),
                 };
                 let errors = crate::Errors::new();
-                let mut transparent = None;
-                let mut allow_unknown_fields = None;
-                let mut default = None;
-                let mut crate_ = None;
+                let mut transparent = FieldStatus::None;
+                let mut allow_unknown_fields = FieldStatus::None;
+                let mut default = FieldStatus::None;
+                let mut crate_ = FieldStatus::None;
                 let mut attributes = Vec::new();
                 let fields = struct_
                     .fields
                     .iter()
-                    .filter_map(|f| match Field::parse_attributes(f) {
-                        Ok(f) => Some(f),
-                        Err(err) => {
-                            errors.push_syn(err);
-                            None
-                        }
-                    })
+                    .filter_map(|f| errors.push_result(Field::parse_attributes(f)))
                     .collect::<Vec<_>>();
-                parse_helpers::parse_struct(inputs, |input, path, span| {
+                errors.push_result(parse_helpers::parse_struct(inputs, |input, path, span| {
                     match path {
                         "transparent" => {
-                            if transparent.is_some() {
-                                errors.push(span, "duplicate attribute for `transparent`");
-                            }
-                            let mut iter = fields.iter().filter(|f| f.is_parsable());
-                            if let Some(first) = iter.next() {
-                                if iter.next().is_some() {
-                                    errors.push(
+                            transparent.parse_named_item_with(
+                                "transparent",
+                                input,
+                                span,
+                                &errors,
+                                |input, span| {
+                                    let mut iter = fields.iter().filter(|f| f.is_parsable());
+                                    if let Some(first) = iter.next() {
+                                        if first.flatten.as_ref().map(|f| f.value).unwrap_or(false)
+                                        {
+                                            return Err(syn::Error::new(
+                                                span,
+                                                "`transparent` struct field cannot be `flat`",
+                                            ));
+                                        } else if first.append.map(|v| *v).unwrap_or(false) {
+                                            return Err(syn::Error::new(
+                                                span,
+                                                "`transparent` struct field cannot be `append`",
+                                            ));
+                                        } else if iter.next().is_none() {
+                                            return <_>::parse_meta_item_named(input, span);
+                                        }
+                                    }
+                                    Err(syn::Error::new(
                                         span,
                                         "`transparent` struct must have only one parseable field",
-                                    );
-                                } else if first.flatten.as_ref().map(|f| f.value).unwrap_or(false) {
-                                    errors
-                                        .push(span, "`transparent` struct field cannot be `flat`");
-                                } else if first.append.map(|v| *v).unwrap_or(false) {
-                                    errors.push(
-                                        span,
-                                        "`transparent` struct field cannot be `append`",
-                                    );
-                                }
-                            }
-                            transparent = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
+                                    ))
+                                },
+                            );
                         }
                         "allow_unknown_fields" => {
                             if matches!(struct_.fields, syn::Fields::Unnamed(_)) {
@@ -443,31 +431,32 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                                     span,
                                     "`allow_unknown_fields` not allowed on tuple struct",
                                 );
+                                parse_helpers::skip_named_meta_item(input);
+                            } else {
+                                allow_unknown_fields.parse_named_item(
+                                    "allow_unknown_fields",
+                                    input,
+                                    span,
+                                    &errors,
+                                );
                             }
-                            if allow_unknown_fields.is_some() {
-                                errors.push(span, "duplicate attribute for `allow_unknown_fields`");
-                            }
-                            allow_unknown_fields =
-                                Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
                         "default" => {
-                            if default.is_some() {
-                                errors.push(span, "duplicate attribute for `default`");
-                            }
                             if matches!(struct_.fields, syn::Fields::Unit) {
                                 errors.push(span, "`default` not allowed on unit struct");
+                                parse_helpers::skip_named_meta_item(input);
+                            } else {
+                                default.parse_named_item("default", input, span, &errors);
                             }
-                            default = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
-                        "crate" => {
-                            if crate_.is_some() {
-                                errors.push(span, "duplicate attribute for `crate`");
-                            }
-                            crate_ = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
-                        }
+                        "crate" => crate_.parse_named_item("crate", input, span, &errors),
                         "attributes" => {
-                            let attrs = mod_path_vec::parse_meta_item_named(input, span)?;
-                            attributes.extend(attrs.into_iter());
+                            match errors
+                                .push_result(mod_path_vec::parse_meta_item_named(input, span))
+                            {
+                                Some(attrs) => attributes.extend(attrs.into_iter()),
+                                None => parse_helpers::skip_named_meta_item(input),
+                            }
                         }
                         _ => {
                             parse_helpers::check_unknown_attribute(
@@ -480,7 +469,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                         }
                     }
                     Ok(())
-                })?;
+                }));
                 let fields = {
                     let mut fields = fields;
                     if default.is_none() {
@@ -538,10 +527,10 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                 Ok(Self {
                     struct_,
                     fields,
-                    default,
-                    crate_,
-                    transparent,
-                    allow_unknown_fields,
+                    default: default.into(),
+                    crate_: crate_.into(),
+                    transparent: transparent.into(),
+                    allow_unknown_fields: allow_unknown_fields.into(),
                     attributes,
                 })
             },

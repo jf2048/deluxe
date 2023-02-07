@@ -1,5 +1,8 @@
 use super::*;
-use deluxe_core::{parse_helpers, ParseAttributes, ParseMetaItem, Result};
+use deluxe_core::{
+    parse_helpers::{self, FieldStatus},
+    ParseAttributes, Result,
+};
 use proc_macro2::{Span, TokenStream};
 use quote::quote_spanned;
 use std::collections::{BTreeSet, HashSet};
@@ -173,35 +176,28 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                     _ => return Err(syn::Error::new_spanned(i, "wrong DeriveInput type")),
                 };
                 let errors = crate::Errors::new();
-                let mut default = None;
-                let mut crate_ = None;
+                let mut default = FieldStatus::<FieldDefault>::None;
+                let mut crate_ = FieldStatus::None;
                 let mut attributes = Vec::new();
-                let mut allow_unknown_fields = None;
-                parse_helpers::parse_struct(inputs, |input, path, span| {
+                let mut allow_unknown_fields = FieldStatus::None;
+                errors.push_result(parse_helpers::parse_struct(inputs, |input, path, span| {
                     match path {
-                        "default" => {
-                            if default.is_some() {
-                                errors.push(span, "duplicate attribute for `default`");
-                            }
-                            default = Some(FieldDefault::parse_meta_item_named(input, span)?);
-                        }
-                        "crate" => {
-                            if crate_.is_some() {
-                                errors.push(span, "duplicate attribute for `crate`");
-                            }
-                            crate_ = Some(ParseMetaItem::parse_meta_item_named(input, span)?);
-                        }
+                        "default" => default.parse_named_item("default", input, span, &errors),
+                        "crate" => crate_.parse_named_item("crate", input, span, &errors),
                         "attributes" => {
-                            let attrs = mod_path_vec::parse_meta_item_named(input, span)?;
-                            attributes.extend(attrs.into_iter());
-                        }
-                        "allow_unknown_fields" => {
-                            if allow_unknown_fields.is_some() {
-                                errors.push(span, "duplicate attribute for `allow_unknown_fields`");
+                            match errors
+                                .push_result(mod_path_vec::parse_meta_item_named(input, span))
+                            {
+                                Some(attrs) => attributes.extend(attrs.into_iter()),
+                                None => parse_helpers::skip_named_meta_item(input),
                             }
-                            allow_unknown_fields =
-                                Some(ParseMetaItem::parse_meta_item_named(input, span)?);
                         }
+                        "allow_unknown_fields" => allow_unknown_fields.parse_named_item(
+                            "allow_unknown_fields",
+                            input,
+                            span,
+                            &errors,
+                        ),
                         _ => {
                             parse_helpers::check_unknown_attribute(
                                 path,
@@ -213,18 +209,14 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                         }
                     }
                     Ok(())
-                })?;
+                }));
                 let variants = enum_
                     .variants
                     .iter()
                     .filter_map(|v| {
-                        match <Variant as ParseAttributes<syn::Variant>>::parse_attributes(v) {
-                            Ok(v) => Some(v),
-                            Err(err) => {
-                                errors.push_syn(err);
-                                None
-                            }
-                        }
+                        errors.push_result(
+                            <Variant as ParseAttributes<syn::Variant>>::parse_attributes(v),
+                        )
                     })
                     .collect::<Vec<_>>();
                 let mut all_idents = HashSet::new();
@@ -289,7 +281,7 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                         }
                     }
                 }
-                if let Some(default) = &default {
+                if let FieldStatus::Some(default) = &default {
                     if variant_keys.contains(&BTreeSet::new()) {
                         errors.push(
                             default.span(),
@@ -301,10 +293,10 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                 Ok(Self {
                     enum_,
                     variants,
-                    default,
-                    crate_,
+                    default: default.into(),
+                    crate_: crate_.into(),
                     attributes,
-                    allow_unknown_fields,
+                    allow_unknown_fields: allow_unknown_fields.into(),
                 })
             },
         )

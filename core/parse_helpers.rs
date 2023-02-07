@@ -16,6 +16,191 @@ use syn::{
     Token,
 };
 
+/// Temporary container for storing parsing state for a single field.
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum FieldStatus<T> {
+    /// Field is not present or not parsed yet.
+    None,
+    /// Field was present, but had an error during parsing.
+    ParseError,
+    /// Field was found and successfully parsed.
+    Some(T),
+}
+
+impl<T> FieldStatus<T> {
+    /// Converts from `&FieldStatus<T>` to `FieldStatus<&T>`.
+    #[inline]
+    pub const fn as_ref(&self) -> FieldStatus<&T> {
+        match *self {
+            Self::Some(ref x) => FieldStatus::Some(x),
+            Self::ParseError => FieldStatus::ParseError,
+            Self::None => FieldStatus::None,
+        }
+    }
+    /// Maps a `FieldStatus<T>` to `FieldStatus<U>` by applying a function to a contained value.
+    #[inline]
+    pub fn map<U, F>(self, f: F) -> FieldStatus<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            Self::Some(x) => FieldStatus::Some(f(x)),
+            Self::ParseError => FieldStatus::ParseError,
+            Self::None => FieldStatus::None,
+        }
+    }
+    /// Returns `true` if the field is a [`FieldStatus::None`] value.
+    #[inline]
+    pub const fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+    /// Returns `true` if the field is a [`FieldStatus::ParseError`] value.
+    #[inline]
+    pub const fn is_parse_error(&self) -> bool {
+        matches!(self, Self::ParseError)
+    }
+    /// Returns `true` if the field is a [`FieldStatus::Some`] value.
+    #[inline]
+    pub const fn is_some(&self) -> bool {
+        matches!(self, Self::Some(_))
+    }
+    /// Returns the contained [`FieldStatus::Some`] value, consuming the `self` value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the self value equals [`FieldStatus::None`] or [`FieldStatus::ParseError`].
+    #[inline]
+    #[track_caller]
+    pub fn unwrap(self) -> T {
+        match self {
+            Self::Some(val) => val,
+            _ => panic!("called `FieldStatus::unwrap()` on a `None` value"),
+        }
+    }
+    /// Returns the contained [`FieldStatus::Some`] value or a provided default.
+    #[inline]
+    pub fn unwrap_or(self, default: T) -> T {
+        match self {
+            Self::Some(x) => x,
+            _ => default,
+        }
+    }
+    /// Returns the contained [`FieldStatus::Some`] value or computes it from a closure.
+    #[inline]
+    pub fn unwrap_or_else<F>(self, f: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        match self {
+            Self::Some(x) => x,
+            _ => f(),
+        }
+    }
+    /// Converts from `FieldStatus<impl Into<FieldStatus<T>>>` to `FieldStatus<T>`.
+    #[inline]
+    pub fn flatten<U>(self) -> FieldStatus<U>
+    where
+        T: Into<FieldStatus<U>>,
+    {
+        match self {
+            Self::Some(inner) => inner.into(),
+            Self::ParseError => FieldStatus::ParseError,
+            Self::None => FieldStatus::None,
+        }
+    }
+    /// Parses a named item into this status.
+    #[inline]
+    pub fn parse_named_item(&mut self, name: &str, input: ParseStream, span: Span, errors: &Errors)
+    where
+        T: ParseMetaItem,
+    {
+        self.parse_named_item_with(name, input, span, errors, T::parse_meta_item_named)
+    }
+    /// Parses a named item into this status, using a custom parsing function.
+    #[inline]
+    pub fn parse_named_item_with<F>(
+        &mut self,
+        name: &str,
+        input: ParseStream,
+        span: Span,
+        errors: &Errors,
+        func: F,
+    ) where
+        F: FnOnce(ParseStream, Span) -> Result<T>,
+    {
+        if !self.is_none() {
+            errors.push(span, format_args!("duplicate attribute for `{name}`"));
+        }
+        match errors.push_result(func(input, span)) {
+            Some(v) => {
+                if self.is_none() {
+                    *self = FieldStatus::Some(v)
+                }
+            }
+            None => {
+                if self.is_none() {
+                    *self = FieldStatus::ParseError;
+                }
+                skip_named_meta_item(input);
+            }
+        }
+    }
+    /// Parses an unnamed item into this status.
+    #[inline]
+    pub fn parse_unnamed_item(&mut self, input: ParseStream, errors: &Errors)
+    where
+        T: ParseMetaItem,
+    {
+        self.parse_unnamed_item_with(input, errors, T::parse_meta_item)
+    }
+    /// Parses an unnamed item into this status, using a custom parsing function.
+    #[inline]
+    pub fn parse_unnamed_item_with<F>(&mut self, input: ParseStream, errors: &Errors, func: F)
+    where
+        F: FnOnce(ParseStream, ParseMode) -> Result<T>,
+    {
+        match errors.push_result(func(input, ParseMode::Unnamed)) {
+            Some(v) => *self = FieldStatus::Some(v),
+            None => {
+                *self = FieldStatus::ParseError;
+                skip_named_meta_item(input);
+            }
+        }
+    }
+    /// Converts the status to an [`Option`].
+    #[inline]
+    pub fn into_option(self) -> Option<T> {
+        match self {
+            Self::Some(v) => Some(v),
+            _ => None,
+        }
+    }
+}
+
+impl<T> Default for FieldStatus<T> {
+    #[inline]
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl<T> From<FieldStatus<T>> for Option<T> {
+    #[inline]
+    fn from(value: FieldStatus<T>) -> Self {
+        value.into_option()
+    }
+}
+
+impl<T> From<Option<T>> for FieldStatus<T> {
+    #[inline]
+    fn from(value: Option<T>) -> Self {
+        match value {
+            Some(v) => Self::Some(v),
+            None => Self::None,
+        }
+    }
+}
+
 mod sealed {
     pub trait Sealed {}
     impl Sealed for syn::token::Paren {}

@@ -7,13 +7,14 @@ use crate::Errors;
 /// `attrs` should provide an iterator of tuples containing the field name, and an [`Option`]
 /// possibly containing the field value. If two or more are [`Some`], an error will be appended to
 /// `errors`, with `prefix` prepended onto the names.
-pub fn only_one<'t, I>(attrs: I, prefix: &str, errors: &Errors)
+pub fn only_one<'t, I, O>(attrs: I, prefix: &str, errors: &Errors)
 where
-    I: IntoIterator<Item = &'t (&'static str, Option<&'t dyn syn::spanned::Spanned>)>,
+    I: IntoIterator<Item = &'t (&'static str, O)>,
     I::IntoIter: Clone,
+    O: Into<Option<&'t dyn syn::spanned::Spanned>> + Clone + ?Sized + 't,
 {
     let iter = attrs.into_iter();
-    let present_spans = iter.clone().filter_map(|f| f.1);
+    let present_spans = iter.clone().filter_map(|f| f.1.clone().into());
     if present_spans.clone().take(2).count() == 2 {
         let mut names = String::new();
         for (n, _) in iter {
