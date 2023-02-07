@@ -596,7 +596,7 @@ pub mod ____private {
         collections::HashMap,
         convert::AsRef,
         default::Default,
-        format_args,
+        format, format_args,
         iter::IntoIterator,
         option::Option,
         primitive::{bool, str, usize},

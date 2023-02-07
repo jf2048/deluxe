@@ -707,7 +707,7 @@ struct StructWithTransparent {
     Debug,
 )]
 struct StructWithExtended {
-    #[deluxe(default, with = custom_int_option)]
+    #[deluxe(with = custom_int_option)]
     int: ::std::option::Option<i32>,
     #[deluxe(with = custom_int_vec)]
     int_vec: ::std::vec::Vec<i32>,
@@ -1671,7 +1671,6 @@ fn positional_and_named() {
     Debug,
 )]
 struct FlagStruct {
-    #[deluxe(default)]
     myflag: ::deluxe::Flag,
     #[deluxe(default)]
     value: i32,

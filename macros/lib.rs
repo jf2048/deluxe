@@ -253,6 +253,10 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///
 ///   Initializes the field with the value of [`Default::default`] if the field is omitted.
 ///
+///   It is not necessary to use this on fields of type [`Option`] or [`Flag`](deluxe_core::Flag),
+///   or any other type that has a top-level [`#[deluxe(default)]`](#deluxedefault) on the type
+///   itself.
+///
 /// - ##### `#[deluxe(default = expr)]`
 ///
 ///   Initializes the field with the value of `expr` if the field is omitted. The expression will
@@ -320,10 +324,11 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///   path to a type containing associated functions.
 ///
 ///   The functions will be called as `module::parse_meta_item`, `module::parse_meta_item_inline`,
-///   `module::parse_meta_item_flag`, and `module::parse_meta_item_named`. All four functions must
-///   be implemented, even if just to return an error. The signatures of these functions should
-///   match the equivalent functions in [`ParseMetaItem`](crate::ParseMetaItem), although they can
-///   be generic over the return type. Fields using this attribute are not required to implement
+///   `module::parse_meta_item_flag`, `module::parse_meta_item_named`, and
+///   `module::missing_meta_item`. All five functions must be implemented, even if just to return
+///   an error. The signatures of these functions should match the equivalent functions in
+///   [`ParseMetaItem`](crate::ParseMetaItem), although they can be generic over the return type.
+///   Fields using this attribute are not required to implement
 ///   [`ParseMetaItem`](crate::ParseMetaItem).
 ///
 ///   `parse_meta_item_inline` implementations can call

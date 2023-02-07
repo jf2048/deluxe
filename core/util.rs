@@ -420,6 +420,10 @@ impl<T> DerefMut for SpannedValue<T> {
 /// Similar to an <code>[Option]&lt;[SpannedValue]&lt;[bool]>></code> but does not allow `=` or
 /// `()` after the field name. Thus, it is only useful with named fields. Parsing this out of a
 /// tuple struct or tuple variant will always result in a parse error.
+///
+/// It is not necessary to use [`#[deluxe(default)]`](ParseMetaItem#deluxedefault-1) on a field
+/// using this type. The field will automatically be created with a `false` value if the name is
+/// omitted.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct Flag(Option<Span>);
 
@@ -516,5 +520,9 @@ impl ParseMetaItem for Flag {
         } else {
             Err(Error::new(input.span(), "unexpected token"))
         }
+    }
+    #[inline]
+    fn missing_meta_item(_name: &str, _span: Span) -> Result<Self> {
+        Ok(Self::unset())
     }
 }

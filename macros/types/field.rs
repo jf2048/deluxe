@@ -247,6 +247,16 @@ impl<'f> Field<'f> {
     pub fn is_parsable(&self) -> bool {
         !self.is_container() && !self.skip.map(|v| *v).unwrap_or(false)
     }
+    pub fn parse_path(&self, crate_: &syn::Path, trait_: &str) -> TokenStream {
+        self.with
+            .as_ref()
+            .map(|m| quote_spanned! { m.span() => #m })
+            .unwrap_or_else(|| {
+                let ty = &self.field.ty;
+                let trait_ = syn::Ident::new(trait_, Span::mixed_site());
+                quote_spanned! { ty.span() => <#ty as #crate_::#trait_> }
+            })
+    }
     pub fn field_names() -> &'static [&'static str] {
         &[
             "rename",
@@ -358,14 +368,8 @@ impl<'f> Field<'f> {
         priv_: &syn::Path,
     ) -> TokenStream {
         let ty = &self.field.ty;
-        let module = self
-            .with
-            .as_ref()
-            .map(|m| quote_spanned! { m.span() => #m });
         if self.append.map(|v| *v).unwrap_or(false) {
-            let path = module.unwrap_or_else(|| {
-                quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaAppend> }
-            });
+            let path = self.parse_path(crate_, "ParseMetaAppend");
             let idents = self.idents.iter().map(|i| i.to_string());
             quote_mixed! {
                 #path::parse_meta_append(
@@ -374,9 +378,7 @@ impl<'f> Field<'f> {
                 )
             }
         } else if self.rest.map(|v| *v).unwrap_or(false) {
-            let path = module.unwrap_or_else(|| {
-                quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaRest> }
-            });
+            let path = self.parse_path(crate_, "ParseMetaRest");
             quote_mixed! {
                 #path::parse_meta_rest(#inputs_expr, #allowed_expr)
             }
@@ -396,9 +398,7 @@ impl<'f> Field<'f> {
                     }
                     None => quote_mixed! { "" },
                 };
-                let path = module.unwrap_or_else(|| {
-                    quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaFlatNamed> }
-                });
+                let path = self.parse_path(crate_, "ParseMetaFlatNamed");
                 quote_mixed! {
                     #path::parse_meta_flat_named(
                         #inputs_expr,
@@ -408,16 +408,15 @@ impl<'f> Field<'f> {
                     )
                 }
             } else {
-                let path = module.unwrap_or_else(|| {
-                    quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaFlatUnnamed> }
-                });
+                let path = self.parse_path(crate_, "ParseMetaFlatUnnamed");
                 quote_mixed! {
                     #path::parse_meta_flat_unnamed(inputs, #crate_::ParseMode::Unnamed, index)
                 }
             }
         } else if self.field.ident.is_some() {
+            let path = self.parse_path(crate_, "ParseMetaItem");
             // named field
-            match module {
+            match &self.with {
                 Some(m) => {
                     let value_ident = syn::Ident::new("value", Span::mixed_site());
                     let input_ident = syn::Ident::new("input", Span::mixed_site());
@@ -425,27 +424,37 @@ impl<'f> Field<'f> {
                     // bind the return to a variable to span a type conversion error properly
                     quote_spanned! { m.span() =>
                         {
-                            let #value_ident = #m::parse_meta_item_named(#input_ident, #span_ident);
+                            let #value_ident = #path::parse_meta_item_named(#input_ident, #span_ident);
                             #value_ident
                         }
                     }
                 }
                 None => {
-                    let func = quote_spanned! { ty.span() =>
-                        <#ty as #crate_::ParseMetaItem>::parse_meta_item_named
-                    };
+                    let func = quote_spanned! { ty.span() => #path::parse_meta_item_named };
                     quote_mixed! {
                         #func(input, span)
                     }
                 }
             }
         } else {
+            let path = self.parse_path(crate_, "ParseMetaItem");
             // unnamed field
-            let path = module.unwrap_or_else(|| {
-                quote_spanned! { ty.span() => <#ty as #crate_::ParseMetaItem> }
-            });
-            quote_mixed! {
-                #path::parse_meta_item(input, #crate_::ParseMode::Unnamed)
+            match &self.with {
+                Some(m) => {
+                    let value_ident = syn::Ident::new("value", Span::mixed_site());
+                    let input_ident = syn::Ident::new("input", Span::mixed_site());
+                    quote_spanned! { m.span() =>
+                        {
+                            let #value_ident = #path::parse_meta_item(#input_ident, #crate_::ParseMode::Unnamed);
+                            #value_ident
+                        }
+                    }
+                }
+                None => {
+                    quote_mixed! {
+                        #path::parse_meta_item(input, #crate_::ParseMode::Unnamed)
+                    }
+                }
             }
         }
     }
@@ -517,12 +526,12 @@ impl<'f> Field<'f> {
                                         }
                                     };
                                     let call = f.to_parse_call_tokens(&inputs_expr, allowed_expr, crate_, priv_);
-                                    let ty = &f.field.ty;
                                     let span = if *variant {
                                         quote_mixed! { span }
                                     } else {
                                         quote_mixed! { #priv_::Span::call_site() }
                                     };
+                                    let flat_path = f.parse_path(crate_, "ParseMetaFlatUnnamed");
                                     quote_mixed! {
                                         if #name.is_none() {
                                             let _mode = #crate_::ParseMode::Unnamed;
@@ -534,30 +543,39 @@ impl<'f> Field<'f> {
                                                 }
                                                 #crate_::Result::Ok(())
                                             })?;
-                                            if let #priv_::Option::Some(count) = <#ty as #crate_::ParseMetaFlatUnnamed>::field_count() {
+                                            if let #priv_::Option::Some(count) = #flat_path::field_count() {
                                                 index += count;
                                             }
                                         }
                                     }
                                 } else {
+                                    let path = f.parse_path(crate_, "ParseMetaItem");
                                     quote_mixed! {
                                         if #name.is_none() {
                                             let span = _mode.to_full_span(inputs);
-                                            errors.push(span, #priv_::format_args!(
-                                                "missing required field {}",
-                                                index + #cur_index #extra_counts,
-                                            ));
+                                            let index = #priv_::format!("{}", index + #cur_index #extra_counts);
+                                            if let #priv_::Option::Some(v) = errors.push_result(#path::missing_meta_item(
+                                                &index,
+                                                span,
+                                            )) {
+                                                #name = #priv_::FieldStatus::Some(v);
+                                            }
                                         }
                                     }
                                 }
                             } else if !f.is_flat() {
                                 let field = f.field.ident.as_ref().unwrap().to_string();
+                                let path = f.parse_path(crate_, "ParseMetaItem");
                                 quote_mixed! {
                                     if #name.is_none() {
-                                        errors.push(span, #priv_::format_args!(
-                                            "missing required field `{}`",
-                                            #priv_::parse_helpers::join_path(prefix, #field)
-                                        ));
+                                        let name = #priv_::parse_helpers::join_path(prefix, #field);
+                                        let name = #priv_::format!("`{}`", name);
+                                        if let #priv_::Option::Some(v) = errors.push_result(#path::missing_meta_item(
+                                            &name,
+                                            span,
+                                        )) {
+                                            #name = #priv_::FieldStatus::Some(v);
+                                        }
                                     }
                                 }
                             } else {

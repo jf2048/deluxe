@@ -9,6 +9,7 @@ struct MetaDef {
     pub parse: TokenStream,
     pub inline: Option<TokenStream>,
     pub flag: Option<TokenStream>,
+    pub default: Option<syn::Expr>,
     pub extra: Option<TokenStream>,
     pub crate_path: syn::Path,
     pub priv_path: syn::Path,
@@ -198,10 +199,14 @@ fn impl_for_struct(
         }
         _ => {}
     }
+    let default = struct_attr
+        .and_then(|s| s.default)
+        .map(|d| d.to_expr(&syn::parse_quote! { Self }, priv_).into_owned());
     Some(MetaDef {
         parse,
         inline,
         flag,
+        default,
         extra,
         crate_path,
         priv_path,
@@ -269,6 +274,9 @@ fn impl_for_enum(input: &syn::DeriveInput, errors: &Errors) -> Option<MetaDef> {
         flag: Some(quote_mixed! {
             #priv_::parse_helpers::parse_empty_meta_item(span, #crate_::ParseMode::Named(span))
         }),
+        default: enum_attr
+            .and_then(|s| s.default)
+            .map(|d| d.to_expr(&syn::parse_quote! { Self }, priv_).into_owned()),
         extra: Some(quote_mixed! {
             impl #impl_generics #crate_::ParseMetaFlatNamed for #enum_ident #type_generics #where_clause {
                 #[inline]
@@ -329,6 +337,7 @@ pub fn impl_parse_meta_item(input: syn::DeriveInput, errors: &Errors) -> TokenSt
         parse,
         inline,
         flag,
+        default,
         extra,
         crate_path: crate_,
         priv_path: priv_,
@@ -362,6 +371,14 @@ pub fn impl_parse_meta_item(input: syn::DeriveInput, errors: &Errors) -> TokenSt
             }
         }
     });
+    let missing = default.map(|default| {
+        quote_mixed! {
+            #[inline]
+            fn missing_meta_item(name: &#priv_::str, span: #priv_::Span) -> #crate_::Result<Self> {
+                #crate_::Result::Ok(#default)
+            }
+        }
+    });
     quote_mixed! {
         impl #impl_generics #crate_::ParseMetaItem for #ident #type_generics #where_clause {
             #[inline]
@@ -373,6 +390,7 @@ pub fn impl_parse_meta_item(input: syn::DeriveInput, errors: &Errors) -> TokenSt
             }
             #inline
             #flag
+            #missing
         }
         #extra
     }

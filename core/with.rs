@@ -32,6 +32,7 @@ pub mod from_str {
     pub fn parse_meta_item_flag<T>(span: proc_macro2::Span) -> Result<T> {
         Err(crate::parse_helpers::flag_disallowed_error(span))
     }
+    #[inline]
     pub fn parse_meta_item_named<T: FromStr>(
         input: ParseStream,
         span: proc_macro2::Span,
@@ -40,6 +41,10 @@ pub mod from_str {
         T::Err: std::fmt::Display,
     {
         crate::parse_named_meta_item_with!(input, span, self)
+    }
+    #[inline]
+    pub fn missing_meta_item<T>(name: &str, span: proc_macro2::Span) -> Result<T> {
+        Err(crate::parse_helpers::missing_field_error(name, span))
     }
 }
 
@@ -83,6 +88,10 @@ pub mod from_str_default {
     {
         crate::parse_named_meta_item_with!(input, span, self)
     }
+    #[inline]
+    pub fn missing_meta_item<T: Default>(_name: &str, _span: proc_macro2::Span) -> Result<T> {
+        Ok(Default::default())
+    }
 }
 
 /// Helpers for parsing a module path using
@@ -114,6 +123,10 @@ pub mod mod_path {
     #[inline]
     pub fn parse_meta_item_named(input: ParseStream, span: proc_macro2::Span) -> Result<syn::Path> {
         crate::parse_named_meta_item_with!(input, span, self)
+    }
+    #[inline]
+    pub fn missing_meta_item(name: &str, span: proc_macro2::Span) -> Result<syn::Path> {
+        Err(crate::parse_helpers::missing_field_error(name, span))
     }
 }
 
@@ -160,6 +173,10 @@ pub mod quoted {
     ) -> Result<T> {
         crate::parse_named_meta_item_with!(input, span, self)
     }
+    #[inline]
+    pub fn missing_meta_item<T: ParseMetaItem>(name: &str, span: proc_macro2::Span) -> Result<T> {
+        T::missing_meta_item(name, span)
+    }
 }
 
 /// Helpers for parsing any type that implements [`ParseMetaItem`](crate::ParseMetaItem) possibly
@@ -199,6 +216,10 @@ pub mod maybe_quoted {
     ) -> Result<T> {
         crate::parse_named_meta_item_with!(input, span, self)
     }
+    #[inline]
+    pub fn missing_meta_item<T: ParseMetaItem>(name: &str, span: proc_macro2::Span) -> Result<T> {
+        T::missing_meta_item(name, span)
+    }
 }
 
 /// Helpers for parsing any type that implements [`syn::parse::Parse`](::syn::parse::Parse).
@@ -222,8 +243,8 @@ pub mod syn {
         crate::parse_helpers::parse_first(inputs, mode, parse_meta_item)
     }
     #[inline]
-    pub fn parse_meta_item_flag<T>(span: proc_macro2::Span) -> Result<T> {
-        Err(crate::parse_helpers::flag_disallowed_error(span))
+    pub fn parse_meta_item_flag<T: Parse>(span: proc_macro2::Span) -> Result<T> {
+        crate::parse_helpers::parse_empty(span, T::parse)
     }
     #[inline]
     pub fn parse_meta_item_named<T: Parse>(
@@ -231,6 +252,10 @@ pub mod syn {
         span: proc_macro2::Span,
     ) -> Result<T> {
         crate::parse_named_meta_item_with!(input, span, self)
+    }
+    #[inline]
+    pub fn missing_meta_item<T>(name: &str, span: proc_macro2::Span) -> Result<T> {
+        Err(crate::parse_helpers::missing_field_error(name, span))
     }
 }
 
@@ -263,8 +288,8 @@ pub mod syn_quoted {
         crate::parse_helpers::parse_first(inputs, mode, parse_meta_item)
     }
     #[inline]
-    pub fn parse_meta_item_flag<T>(span: proc_macro2::Span) -> Result<T> {
-        Err(crate::parse_helpers::flag_disallowed_error(span))
+    pub fn parse_meta_item_flag<T: Parse>(span: proc_macro2::Span) -> Result<T> {
+        crate::parse_helpers::parse_empty(span, T::parse)
     }
     #[inline]
     pub fn parse_meta_item_named<T: Parse>(
@@ -272,6 +297,10 @@ pub mod syn_quoted {
         span: proc_macro2::Span,
     ) -> Result<T> {
         crate::parse_named_meta_item_with!(input, span, self)
+    }
+    #[inline]
+    pub fn missing_meta_item<T>(name: &str, span: proc_macro2::Span) -> Result<T> {
+        Err(crate::parse_helpers::missing_field_error(name, span))
     }
 }
 
@@ -347,6 +376,13 @@ macro_rules! define_with_optional {
                 span: $crate::Span,
             ) -> $crate::Result<$crate::Option<$ty>> {
                 $crate::parse_named_meta_item_with!(input, span, self)
+            }
+            #[inline]
+            pub fn missing_meta_item(
+                name: &$crate::primitive::str,
+                span: $crate::Span,
+            ) -> $crate::Result<$crate::Option<$ty>> {
+                $crate::Result::Ok($crate::Option::None)
             }
         }
     };
@@ -436,6 +472,13 @@ macro_rules! define_with_collection {
                 span: $crate::Span,
             ) -> $crate::Result<$($coll)? $(:: $colls)* <$ty>> {
                 $crate::parse_named_meta_item_with!(input, span, self)
+            }
+            #[inline]
+            pub fn missing_meta_item(
+                name: &$crate::primitive::str,
+                span: $crate::Span,
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$ty>> {
+                $crate::Result::Ok($crate::Default::default())
             }
             #[inline]
             pub fn field_count() -> $crate::Option<$crate::primitive::usize> {
@@ -609,6 +652,13 @@ macro_rules! define_with_map {
                 $crate::parse_named_meta_item_with!(input, span, self)
             }
             #[inline]
+            pub fn missing_meta_item(
+                name: &$crate::primitive::str,
+                span: $crate::Span,
+            ) -> $crate::Result<$($coll)? $(:: $colls)* <$key, $val>> {
+                $crate::Result::Ok($crate::Default::default())
+            }
+            #[inline]
             pub fn field_count() -> $crate::Option<$crate::primitive::usize> {
                 $crate::Option::None
             }
@@ -679,5 +729,9 @@ pub mod identity {
         span: proc_macro2::Span,
     ) -> Result<T> {
         crate::parse_named_meta_item_with!(input, span, self)
+    }
+    #[inline]
+    pub fn missing_meta_item<T: ParseMetaItem>(name: &str, span: proc_macro2::Span) -> Result<T> {
+        T::missing_meta_item(name, span)
     }
 }

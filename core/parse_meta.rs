@@ -127,6 +127,17 @@ pub trait ParseMetaItem: Sized {
     fn parse_meta_item_named(input: ParseStream, span: Span) -> Result<Self> {
         parse_named_meta_item(input, span)
     }
+    /// Fallback for when a required item is missing.
+    ///
+    /// Only called when a required (non-default) field was omitted from a parsed attribute.
+    /// Implementations on types that implement [`Default`] will most likely want to return
+    /// <code>[Ok]\([Default::default]\(\)\)</code> here.
+    ///
+    /// The default implementation returns an error.
+    #[inline]
+    fn missing_meta_item(name: &str, span: Span) -> Result<Self> {
+        Err(missing_field_error(name, span))
+    }
 }
 
 /// Parses a meta item for a structure with unnamed fields.
@@ -350,6 +361,10 @@ impl<T: ParseMetaItem> ParseMetaItem for Option<T> {
     #[inline]
     fn parse_meta_item_flag(span: Span) -> Result<Self> {
         T::parse_meta_item_flag(span).map(Some)
+    }
+    #[inline]
+    fn missing_meta_item(_name: &str, _span: Span) -> Result<Self> {
+        Ok(None)
     }
 }
 

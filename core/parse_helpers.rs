@@ -787,6 +787,14 @@ pub fn inputs_span<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S]) -> Span {
     }
 }
 
+/// Returns an error with a "missing required field" message.
+///
+/// The error will be spanned to `span`.
+#[inline]
+pub fn missing_field_error(name: &str, span: Span) -> Error {
+    syn::Error::new(span, format_args!("missing required field {name}"))
+}
+
 /// Returns an error with a "unexpected flag" message.
 ///
 /// The error will be spanned to `span`.
