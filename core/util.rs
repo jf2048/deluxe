@@ -288,7 +288,7 @@ impl<T: ParseMetaItem> ParseMetaItem for SpannedValue<T> {
     fn parse_meta_item(input: ParseStream, mode: crate::ParseMode) -> Result<Self> {
         let span = input.span();
         let value = T::parse_meta_item(input, mode)?;
-        let span = input.span().join(span).unwrap();
+        let span = input.span().join(span).unwrap_or(span);
         Ok(Self { value, span })
     }
     #[inline]
@@ -309,6 +309,12 @@ impl<T: ParseMetaItem> ParseMetaItem for SpannedValue<T> {
             value: T::parse_meta_item_flag(span)?,
             span,
         })
+    }
+    #[inline]
+    fn parse_meta_item_named(input: ParseStream, span: Span) -> Result<Self> {
+        let value = T::parse_meta_item_named(input, span)?;
+        let span = input.span().join(span).unwrap_or(span);
+        Ok(Self { value, span })
     }
 }
 
