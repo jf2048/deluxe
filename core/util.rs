@@ -28,13 +28,20 @@ pub struct Errors {
 impl Errors {
     #[inline]
     /// Creates a new empty error list.
-    pub fn new() -> Self {
-        Default::default()
+    pub const fn new() -> Self {
+        Self {
+            errors: RefCell::new(None),
+        }
     }
     /// Checks if the list contains any errors.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.errors.borrow().is_none()
+    }
+    /// Reset the list to an empty state.
+    #[inline]
+    pub fn clear(&self) {
+        self.errors.take();
     }
     /// Pushes one error onto the list. This function is a wrapper around [`syn::Error::new`].
     #[inline]
@@ -65,6 +72,20 @@ impl Errors {
             storage.combine(error);
         } else {
             storage.replace(error);
+        }
+    }
+    /// Pushes an error onto the list from a [`Result`].
+    ///
+    /// If `result` is [`Err`], pushes the error and returns [`None`]. If `result` is [`Ok`],
+    /// returns <code>[Some]\(T)</code>.
+    #[inline]
+    pub fn push_result<T>(&self, result: Result<T>) -> Option<T> {
+        match result {
+            Ok(t) => Some(t),
+            Err(e) => {
+                self.push_syn(e);
+                None
+            }
         }
     }
     /// Appends all errors from `iter` into this list.
@@ -112,6 +133,27 @@ impl Errors {
             .take()
             .into_iter()
             .map(|e| e.into_compile_error())
+    }
+}
+
+impl quote::ToTokens for Errors {
+    #[inline]
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        tokens.extend(self.to_token_stream());
+    }
+    fn to_token_stream(&self) -> TokenStream {
+        self.errors
+            .borrow()
+            .as_ref()
+            .map(|e| e.to_compile_error())
+            .unwrap_or_default()
+    }
+    #[inline]
+    fn into_token_stream(self) -> TokenStream
+    where
+        Self: Sized,
+    {
+        self.into_compile_error().unwrap_or_default()
     }
 }
 

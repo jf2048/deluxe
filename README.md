@@ -287,15 +287,15 @@ pub fn derive_my_description(item: TokenStream) -> TokenStream {
 
     let ident = &input.ident;
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
-    let errors = errors.into_compile_error();
 
+    // Make sure to include the errors in the output
     let tokens = quote::quote! {
+        #errors
         impl #impl_generics #ident #type_generics #where_clause {
             fn my_desc() -> &'static str {
                 concat!("Name: ", #name, ", Version: ", #version #(, ", Author: ", #authors)*)
             }
         }
-        #errors
     };
     tokens.into()
 }
@@ -332,7 +332,7 @@ pub fn my_desc_mod(
         }
     });
 
-    let errors = errors.into_compile_error();
+    // Make sure to include the errors in the output
     let tokens = quote::quote! { #module #errors };
     tokens.into()
 }

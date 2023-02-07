@@ -37,14 +37,9 @@ fn impl_for_struct<'i>(
     mode: Mode,
     errors: &Errors,
 ) -> Option<AttrImpl<'i>> {
-    let struct_attr =
-        match <Struct as deluxe_core::ParseAttributes<syn::DeriveInput>>::parse_attributes(input) {
-            Ok(s) => Some(s),
-            Err(err) => {
-                errors.push_syn(err);
-                None
-            }
-        };
+    let struct_attr = errors.push_result(<Struct as deluxe_core::ParseAttributes<
+        syn::DeriveInput,
+    >>::parse_attributes(input));
 
     let crate_path = super::get_crate_path(struct_attr.as_ref().map(|s| s.crate_.clone()), errors)?;
     let crate_ = &crate_path;
@@ -122,14 +117,9 @@ fn impl_for_enum<'i>(
     mode: Mode,
     errors: &Errors,
 ) -> Option<AttrImpl<'i>> {
-    let enum_attr =
-        match <Enum as deluxe_core::ParseAttributes<syn::DeriveInput>>::parse_attributes(input) {
-            Ok(e) => Some(e),
-            Err(err) => {
-                errors.push_syn(err);
-                None
-            }
-        };
+    let enum_attr = errors.push_result(
+        <Enum as deluxe_core::ParseAttributes<syn::DeriveInput>>::parse_attributes(input),
+    );
 
     let crate_path = super::get_crate_path(enum_attr.as_ref().map(|e| e.crate_.clone()), errors)?;
     let crate_ = &crate_path;

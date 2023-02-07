@@ -3,14 +3,9 @@ use syn::parse::{Parse, Parser};
 
 use deluxe_core::Errors;
 
+#[inline]
 pub fn parse<T: Parse>(input: TokenStream, errors: &Errors) -> Option<T> {
-    match <T as Parse>::parse.parse2(input) {
-        Ok(t) => Some(t),
-        Err(e) => {
-            errors.push_syn(e);
-            None
-        }
-    }
+    errors.push_result(<T as Parse>::parse.parse2(input))
 }
 
 fn crate_path(errors: Option<&Errors>) -> Option<syn::Path> {
