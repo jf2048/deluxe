@@ -268,7 +268,7 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
     });
 
     // value types must be copied into the structure
-    if !container_is_ref {
+    if container_field.is_some() && !container_is_ref {
         let where_clause = generics.make_where_clause();
         where_clause.predicates.push(syn::parse_quote! {
             #container_ty: #priv_::Clone
