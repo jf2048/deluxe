@@ -16,6 +16,191 @@ use syn::{
     Token,
 };
 
+/// Temporary container for storing parsing state for a single field.
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum FieldStatus<T> {
+    /// Field is not present or not parsed yet.
+    None,
+    /// Field was present, but had an error during parsing.
+    ParseError,
+    /// Field was found and successfully parsed.
+    Some(T),
+}
+
+impl<T> FieldStatus<T> {
+    /// Converts from `&FieldStatus<T>` to `FieldStatus<&T>`.
+    #[inline]
+    pub const fn as_ref(&self) -> FieldStatus<&T> {
+        match *self {
+            Self::Some(ref x) => FieldStatus::Some(x),
+            Self::ParseError => FieldStatus::ParseError,
+            Self::None => FieldStatus::None,
+        }
+    }
+    /// Maps a `FieldStatus<T>` to `FieldStatus<U>` by applying a function to a contained value.
+    #[inline]
+    pub fn map<U, F>(self, f: F) -> FieldStatus<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            Self::Some(x) => FieldStatus::Some(f(x)),
+            Self::ParseError => FieldStatus::ParseError,
+            Self::None => FieldStatus::None,
+        }
+    }
+    /// Returns `true` if the field is a [`FieldStatus::None`] value.
+    #[inline]
+    pub const fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+    /// Returns `true` if the field is a [`FieldStatus::ParseError`] value.
+    #[inline]
+    pub const fn is_parse_error(&self) -> bool {
+        matches!(self, Self::ParseError)
+    }
+    /// Returns `true` if the field is a [`FieldStatus::Some`] value.
+    #[inline]
+    pub const fn is_some(&self) -> bool {
+        matches!(self, Self::Some(_))
+    }
+    /// Returns the contained [`FieldStatus::Some`] value, consuming the `self` value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the self value equals [`FieldStatus::None`] or [`FieldStatus::ParseError`].
+    #[inline]
+    #[track_caller]
+    pub fn unwrap(self) -> T {
+        match self {
+            Self::Some(val) => val,
+            _ => panic!("called `FieldStatus::unwrap()` on a `None` value"),
+        }
+    }
+    /// Returns the contained [`FieldStatus::Some`] value or a provided default.
+    #[inline]
+    pub fn unwrap_or(self, default: T) -> T {
+        match self {
+            Self::Some(x) => x,
+            _ => default,
+        }
+    }
+    /// Returns the contained [`FieldStatus::Some`] value or computes it from a closure.
+    #[inline]
+    pub fn unwrap_or_else<F>(self, f: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        match self {
+            Self::Some(x) => x,
+            _ => f(),
+        }
+    }
+    /// Converts from `FieldStatus<impl Into<FieldStatus<T>>>` to `FieldStatus<T>`.
+    #[inline]
+    pub fn flatten<U>(self) -> FieldStatus<U>
+    where
+        T: Into<FieldStatus<U>>,
+    {
+        match self {
+            Self::Some(inner) => inner.into(),
+            Self::ParseError => FieldStatus::ParseError,
+            Self::None => FieldStatus::None,
+        }
+    }
+    /// Parses a named item into this status.
+    #[inline]
+    pub fn parse_named_item(&mut self, name: &str, input: ParseStream, span: Span, errors: &Errors)
+    where
+        T: ParseMetaItem,
+    {
+        self.parse_named_item_with(name, input, span, errors, T::parse_meta_item_named)
+    }
+    /// Parses a named item into this status, using a custom parsing function.
+    #[inline]
+    pub fn parse_named_item_with<F>(
+        &mut self,
+        name: &str,
+        input: ParseStream,
+        span: Span,
+        errors: &Errors,
+        func: F,
+    ) where
+        F: FnOnce(ParseStream, Span) -> Result<T>,
+    {
+        if !self.is_none() {
+            errors.push(span, format_args!("duplicate attribute for `{name}`"));
+        }
+        match errors.push_result(func(input, span)) {
+            Some(v) => {
+                if self.is_none() {
+                    *self = FieldStatus::Some(v)
+                }
+            }
+            None => {
+                if self.is_none() {
+                    *self = FieldStatus::ParseError;
+                }
+                skip_meta_item(input);
+            }
+        }
+    }
+    /// Parses an unnamed item into this status.
+    #[inline]
+    pub fn parse_unnamed_item(&mut self, input: ParseStream, errors: &Errors)
+    where
+        T: ParseMetaItem,
+    {
+        self.parse_unnamed_item_with(input, errors, T::parse_meta_item)
+    }
+    /// Parses an unnamed item into this status, using a custom parsing function.
+    #[inline]
+    pub fn parse_unnamed_item_with<F>(&mut self, input: ParseStream, errors: &Errors, func: F)
+    where
+        F: FnOnce(ParseStream, ParseMode) -> Result<T>,
+    {
+        match errors.push_result(func(input, ParseMode::Unnamed)) {
+            Some(v) => *self = FieldStatus::Some(v),
+            None => {
+                *self = FieldStatus::ParseError;
+                skip_meta_item(input);
+            }
+        }
+    }
+    /// Converts the status to an [`Option`].
+    #[inline]
+    pub fn into_option(self) -> Option<T> {
+        match self {
+            Self::Some(v) => Some(v),
+            _ => None,
+        }
+    }
+}
+
+impl<T> Default for FieldStatus<T> {
+    #[inline]
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl<T> From<FieldStatus<T>> for Option<T> {
+    #[inline]
+    fn from(value: FieldStatus<T>) -> Self {
+        value.into_option()
+    }
+}
+
+impl<T> From<Option<T>> for FieldStatus<T> {
+    #[inline]
+    fn from(value: Option<T>) -> Self {
+        match value {
+            Some(v) => Self::Some(v),
+            None => Self::None,
+        }
+    }
+}
+
 mod sealed {
     pub trait Sealed {}
     impl Sealed for syn::token::Paren {}
@@ -326,7 +511,7 @@ where
 /// Callers will typically check the field name for a match, and then call
 /// [`parse_named_meta_item`] or [`parse_named_meta_item_with`](fn@parse_named_meta_item_with).
 ///
-/// Callers will usually want to use [`check_unknown_attribute`] and [`skip_named_meta_item`] when
+/// Callers will usually want to use [`check_unknown_attribute`] and [`skip_meta_item`] when
 /// encountering any unknown fields.
 ///
 /// Returns [`Err`] on any parsing errors or the first failure of `func`.
@@ -356,7 +541,7 @@ where
 ///
 /// Consumes all tokens up until the comma. Does not consume the comma.
 #[inline]
-pub fn skip_named_meta_item(input: ParseStream) {
+pub fn skip_meta_item(input: ParseStream) {
     input
         .step(|cursor| {
             let mut cur = *cursor;
@@ -417,31 +602,31 @@ fn parse_tokens<T, F: FnOnce(ParseStream) -> Result<T>>(input: TokenStream, func
 pub fn parse_struct_attr_tokens<T, I, F, R>(inputs: I, func: F) -> Result<R>
 where
     T: quote::ToTokens,
-    I: IntoIterator<Item = (T, Span)>,
-    F: FnOnce(&[ParseBuffer], &[Span]) -> Result<R>,
+    I: IntoIterator<Item = (T, String, Span)>,
+    F: FnOnce(&[ParseBuffer], &[(String, Span)]) -> Result<R>,
 {
     fn parse_next<T, I, F, R>(
         mut iter: I,
         buffers: Vec<ParseBuffer>,
-        mut spans: Vec<Span>,
+        mut paths: Vec<(String, Span)>,
         func: F,
     ) -> Result<R>
     where
         T: quote::ToTokens,
-        I: Iterator<Item = (T, Span)>,
-        F: FnOnce(&[ParseBuffer], &[Span]) -> Result<R>,
+        I: Iterator<Item = (T, String, Span)>,
+        F: FnOnce(&[ParseBuffer], &[(String, Span)]) -> Result<R>,
     {
-        if let Some((tokens, span)) = iter.next() {
+        if let Some((tokens, name, span)) = iter.next() {
             let tokens = tokens.into_token_stream();
             parse_tokens(tokens, |stream| {
                 let content = Paren::parse_delimited(stream)?;
                 let mut buffers: Vec<ParseBuffer> = buffers; // move to shrink the lifetime
                 buffers.push(content);
-                spans.push(span);
-                parse_next(iter, buffers, spans, func)
+                paths.push((name, span));
+                parse_next(iter, buffers, paths, func)
             })
         } else {
-            let r = func(&buffers, &spans)?;
+            let r = func(&buffers, &paths)?;
             for buffer in buffers {
                 parse_eof_or_trailing_comma(&buffer)?;
             }
@@ -602,6 +787,14 @@ pub fn inputs_span<'s, S: Borrow<ParseBuffer<'s>>>(inputs: &[S]) -> Span {
     }
 }
 
+/// Returns an error with a "missing required field" message.
+///
+/// The error will be spanned to `span`.
+#[inline]
+pub fn missing_field_error(name: &str, span: Span) -> Error {
+    syn::Error::new(span, format_args!("missing required field {name}"))
+}
+
 /// Returns an error with a "unexpected flag" message.
 ///
 /// The error will be spanned to `span`.
@@ -651,14 +844,14 @@ pub fn check_unknown_attribute(path: &str, span: Span, fields: &[&str], errors: 
 /// corresponding path [`Span`](proc_macro2::Span) from a matched
 /// [`ParseAttributes`](crate::ParseAttributes).
 #[inline]
-pub fn ref_tokens<'t, P, T>(input: &'t T) -> impl Iterator<Item = (&TokenStream, Span)>
+pub fn ref_tokens<'t, P, T>(input: &'t T) -> impl Iterator<Item = (&TokenStream, String, Span)>
 where
     P: crate::ParseAttributes<'t, T>,
     T: crate::HasAttributes,
 {
-    T::attrs(input)
-        .iter()
-        .filter_map(|a| P::path_matches(&a.path).then(|| (&a.tokens, a.path.span())))
+    T::attrs(input).iter().filter_map(|a| {
+        P::path_matches(&a.path).then(|| (&a.tokens, path_to_string(&a.path), a.path.span()))
+    })
 }
 
 /// Returns an iterator of [`TokenStream`](proc_macro2::TokenStream)s and the corresponding path
@@ -667,7 +860,7 @@ where
 /// All matching attributes will be removed from `input`. The resulting
 /// [`TokenStream`](proc_macro2::TokenStream)s are moved into the iterator.
 #[inline]
-pub fn take_tokens<E, T>(input: &mut T) -> Result<impl Iterator<Item = (TokenStream, Span)>>
+pub fn take_tokens<E, T>(input: &mut T) -> Result<impl Iterator<Item = (TokenStream, String, Span)>>
 where
     E: crate::ExtractAttributes<T>,
     T: crate::HasAttributes,
@@ -678,7 +871,7 @@ where
     while index < attrs.len() {
         if E::path_matches(&attrs[index].path) {
             let attr = attrs.remove(index);
-            tokens.push((attr.tokens, attr.path.span()));
+            tokens.push((attr.tokens, path_to_string(&attr.path), attr.path.span()));
         } else {
             index += 1;
         }
@@ -686,12 +879,20 @@ where
     Ok(tokens.into_iter())
 }
 
-/// Gets the first [`Span`](proc_macro2::Span) in a list of spans.
+/// Gets the first [`Span`](proc_macro2::Span) in a list of path names and spans.
 ///
 /// Returns [`Span::call_site`](proc_macro2::Span::call_site) if the slice is empty.
 #[inline]
-pub fn first_span(spans: &[Span]) -> Span {
-    spans.first().cloned().unwrap_or_else(Span::call_site)
+pub fn first_span(spans: &[(String, Span)]) -> Span {
+    spans.first().map(|s| s.1).unwrap_or_else(Span::call_site)
+}
+
+/// Gets the first string in a list of path names and spans.
+///
+/// Returns [`None`] if the slice is empty.
+#[inline]
+pub fn first_path_name(spans: &[(String, Span)]) -> Option<&str> {
+    spans.first().map(|s| s.0.as_str())
 }
 
 /// Forks all streams in a [`ParseStream`](syn::parse::ParseStream) slice into a new [`Vec`] of

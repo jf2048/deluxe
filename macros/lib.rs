@@ -4,6 +4,7 @@
 //! crate for an overview.
 
 #![deny(missing_docs)]
+#![deny(unsafe_code)]
 
 #[macro_use]
 mod util;
@@ -159,6 +160,32 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///   definitions to use [`flatten`](#deluxeflatten-1), [`append`](#deluxeappend) or
 ///   [`rest`](#deluxerest) on this type.
 ///
+/// - ##### `#[deluxe(and_then = expr)]`
+///
+///   Executes an additional function ater parsing to perform additional transformations or
+///   validation on the input.
+///
+///   This attribute is a simple wrapper around
+///   [`Result::and_then`](deluxe_core::Result::and_then). The function returned by `expr` must
+///   conform to the signature <code>fn(T) -> [deluxe::Result](deluxe_core::Result)&lt;T></code>
+///   where `T` is the type of the struct/enum being parsed. Returning
+///   [`Err`](deluxe_core::Result::Err) will cause the entire parse to fail.
+///
+///   This attribute can be specified multiple times. When multiple `and_then` attributes are
+///   present, Deluxe will execute each function in order the attributs were specified.
+///
+///   ```ignore
+///   #[derive(deluxe::ParseMetaItem)]
+///   #[deluxe(and_then = Self::validate)]
+///   struct Data(i32);
+///   impl Data {
+///       fn validate(self) -> deluxe::Result<Self> {
+///           // ... perform some checks here ...
+///           Ok(self)
+///       }
+///   }
+///   ```
+///
 /// - ##### `#[deluxe(allow_unknown_fields)]`
 ///
 ///   Ignore any tokens and do not generate an error when an unknown field is encountered.
@@ -225,6 +252,10 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 /// - ##### `#[deluxe(default)]`
 ///
 ///   Initializes the field with the value of [`Default::default`] if the field is omitted.
+///
+///   It is not necessary to use this on fields of type [`Option`] or [`Flag`](deluxe_core::Flag),
+///   or any other type that has a top-level [`#[deluxe(default)]`](#deluxedefault) on the type
+///   itself.
 ///
 /// - ##### `#[deluxe(default = expr)]`
 ///
@@ -293,10 +324,11 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///   path to a type containing associated functions.
 ///
 ///   The functions will be called as `module::parse_meta_item`, `module::parse_meta_item_inline`,
-///   `module::parse_meta_item_flag`, and `module::parse_meta_item_named`. All four functions must
-///   be implemented, even if just to return an error. The signatures of these functions should
-///   match the equivalent functions in [`ParseMetaItem`](crate::ParseMetaItem), although they can
-///   be generic over the return type. Fields using this attribute are not required to implement
+///   `module::parse_meta_item_flag`, `module::parse_meta_item_named`, and
+///   `module::missing_meta_item`. All five functions must be implemented, even if just to return
+///   an error. The signatures of these functions should match the equivalent functions in
+///   [`ParseMetaItem`](crate::ParseMetaItem), although they can be generic over the return type.
+///   Fields using this attribute are not required to implement
 ///   [`ParseMetaItem`](crate::ParseMetaItem).
 ///
 ///   `parse_meta_item_inline` implementations can call

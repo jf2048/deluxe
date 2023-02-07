@@ -37,14 +37,9 @@ fn impl_for_struct<'i>(
     mode: Mode,
     errors: &Errors,
 ) -> Option<AttrImpl<'i>> {
-    let struct_attr =
-        match <Struct as deluxe_core::ParseAttributes<syn::DeriveInput>>::parse_attributes(input) {
-            Ok(s) => Some(s),
-            Err(err) => {
-                errors.push_syn(err);
-                None
-            }
-        };
+    let struct_attr = errors.push_result(<Struct as deluxe_core::ParseAttributes<
+        syn::DeriveInput,
+    >>::parse_attributes(input));
 
     let crate_path = super::get_crate_path(struct_attr.as_ref().map(|s| s.crate_.clone()), errors)?;
     let crate_ = &crate_path;
@@ -122,14 +117,9 @@ fn impl_for_enum<'i>(
     mode: Mode,
     errors: &Errors,
 ) -> Option<AttrImpl<'i>> {
-    let enum_attr =
-        match <Enum as deluxe_core::ParseAttributes<syn::DeriveInput>>::parse_attributes(input) {
-            Ok(e) => Some(e),
-            Err(err) => {
-                errors.push_syn(err);
-                None
-            }
-        };
+    let enum_attr = errors.push_result(
+        <Enum as deluxe_core::ParseAttributes<syn::DeriveInput>>::parse_attributes(input),
+    );
 
     let crate_path = super::get_crate_path(enum_attr.as_ref().map(|e| e.crate_.clone()), errors)?;
     let crate_ = &crate_path;
@@ -278,7 +268,7 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
     });
 
     // value types must be copied into the structure
-    if !container_is_ref {
+    if container_field.is_some() && !container_is_ref {
         let where_clause = generics.make_where_clause();
         where_clause.predicates.push(syn::parse_quote! {
             #container_ty: #priv_::Clone
@@ -345,6 +335,10 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
         Mode::Parse => None,
         Mode::Extract => Some(quote_mixed! { ? }),
     };
+    let path_name_unwrap = attributes.first().map(|path| {
+        let path = deluxe_core::parse_helpers::path_to_string(path);
+        quote_mixed! { .or(#priv_::Option::Some(#path)) }
+    });
 
     quote_mixed! {
         impl #impl_generics #trait_ for #ident #type_generics #where_clause {
@@ -357,6 +351,7 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
                     #priv_::parse_helpers::#get_tokens::<Self, _>(obj) #tokens_try,
                     |inputs, spans| {
                         let span = #priv_::parse_helpers::first_span(spans);
+                        let path_name = #priv_::parse_helpers::first_path_name(spans) #path_name_unwrap;
                         let _mode = #crate_::ParseMode::Named(span);
                         #parse
                     }

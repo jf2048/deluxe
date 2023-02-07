@@ -13,6 +13,7 @@
 //! of how Deluxe works.
 
 #![deny(missing_docs)]
+#![deny(unsafe_code)]
 
 mod parse_attributes;
 pub mod parse_helpers;

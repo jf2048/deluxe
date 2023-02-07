@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 #![no_implicit_prelude]
 
 use ::quote::quote as q;
@@ -160,6 +161,10 @@ fn parse_named() {
     ::std::assert_eq!(
         parse(q! { {a(123), b("asdf"), a(456)} }).unwrap_err_string(),
         "duplicate attribute for `a`"
+    );
+    ::std::assert_eq!(
+        parse(q! { {a(123), b("asdf"), a(456), a("456") } }).unwrap_err_string(),
+        "duplicate attribute for `a`, duplicate attribute for `a`, expected integer literal"
     );
 }
 
@@ -636,6 +641,14 @@ fn parse_simple_enum() {
     ::std::assert_eq!(parse(q! { { b } }).unwrap(), MySimpleEnum::B);
     ::std::assert_eq!(parse(q! { { c } }).unwrap(), MySimpleEnum::C);
     ::std::assert_eq!(
+        parse(q! { { a, b } }).unwrap_err_string(),
+        "expected only one enum variant, got `a` and `b`"
+    );
+    ::std::assert_eq!(
+        parse(q! { { a, c } }).unwrap_err_string(),
+        "expected only one enum variant, got `a` and `c`"
+    );
+    ::std::assert_eq!(
         parse(q! { { d } }).unwrap_err_string(),
         "unknown field `d`, expected one of `a`, `b`, `c`"
     );
@@ -694,7 +707,7 @@ struct StructWithTransparent {
     Debug,
 )]
 struct StructWithExtended {
-    #[deluxe(default, with = custom_int_option)]
+    #[deluxe(with = custom_int_option)]
     int: ::std::option::Option<i32>,
     #[deluxe(with = custom_int_vec)]
     int_vec: ::std::vec::Vec<i32>,
@@ -1231,8 +1244,16 @@ fn enum_allow_unknown() {
         EnumAllow::Known { value: 50 }
     );
     ::std::assert_eq!(
+        parse(q! { { known(value(50)), unknown(value(51)) } }).unwrap_err_string(),
+        "expected only one enum variant, got `known` and `unknown`"
+    );
+    ::std::assert_eq!(
         parse(q! { { known(value(50), another("thing")) } }).unwrap_err_string(),
         "unknown field `another`"
+    );
+    ::std::assert_eq!(
+        parse(q! { { known(value(50), another("thing")), unknown(value("50")) } }).unwrap_err_string(),
+        "unknown field `another`, expected only one enum variant, got `known` and `unknown`, expected integer literal"
     );
     ::std::assert_eq!(
         parse(q! { { unknown(value(50)) } }).unwrap(),
@@ -1482,7 +1503,7 @@ impl ::deluxe::ParseMetaAppend for CustomAppendSum {
             if paths.clone().any(|path| path.as_ref() == p) {
                 value += ::deluxe_core::parse_helpers::parse_named_meta_item::<i32>(input, pspan)?;
             } else {
-                ::deluxe_core::parse_helpers::skip_named_meta_item(input);
+                ::deluxe_core::parse_helpers::skip_meta_item(input);
             }
             ::deluxe::Result::Ok(())
         })?;
@@ -1639,5 +1660,183 @@ fn positional_and_named() {
                 }
             )
         )
+    );
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+struct FlagStruct {
+    myflag: ::deluxe::Flag,
+    #[deluxe(default)]
+    value: i32,
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+// should always error when encountering the field
+struct FlagTupleStruct(::deluxe::Flag);
+
+#[test]
+fn flag() {
+    use ::std::prelude::v1::*;
+    let parse = parse_meta::<FlagStruct>;
+
+    ::std::assert_eq!(
+        parse(q! { { myflag } }).unwrap(),
+        FlagStruct {
+            myflag: true.into(),
+            value: 0,
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { {} }).unwrap(),
+        FlagStruct {
+            myflag: false.into(),
+            value: 0,
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { myflag, value = 123 } }).unwrap(),
+        FlagStruct {
+            myflag: true.into(),
+            value: 123,
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { myflag = true } }).unwrap_err_string(),
+        "unexpected token",
+    );
+    ::std::assert_eq!(
+        parse(q! { { myflag(true) } }).unwrap_err_string(),
+        "unexpected token",
+    );
+
+    let parse = parse_meta::<FlagTupleStruct>;
+
+    ::std::assert_eq!(
+        parse(q! { (myflag) }).unwrap_err_string(),
+        "field with type `Flag` can only be a named field with no value",
+    );
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+#[deluxe(and_then = Self::validate_min, and_then = Self::validate_max)]
+struct AndThens {
+    a: ::deluxe::SpannedValue<i32>,
+    b: i32,
+}
+
+impl AndThens {
+    fn validate_min(self) -> ::deluxe::Result<Self> {
+        if *self.a + self.b <= -10 {
+            ::deluxe::Result::Err(::deluxe::Error::new(
+                ::syn::spanned::Spanned::span(&self.a),
+                "sum of a and b must be above -10",
+            ))
+        } else {
+            ::deluxe::Result::Ok(self)
+        }
+    }
+    fn validate_max(self) -> ::deluxe::Result<Self> {
+        if *self.a + self.b >= 10 {
+            ::deluxe::Result::Err(::deluxe::Error::new(
+                ::syn::spanned::Spanned::span(&self.a),
+                "sum of a and b must be below 10",
+            ))
+        } else {
+            ::deluxe::Result::Ok(self)
+        }
+    }
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+#[deluxe(and_then = Self::validate_min, and_then = Self::validate_max)]
+enum AndThensEnum {
+    Values {
+        a: ::deluxe::SpannedValue<i32>,
+        b: i32,
+    },
+    Empty,
+}
+
+impl AndThensEnum {
+    fn validate_min(self) -> ::deluxe::Result<Self> {
+        if let Self::Values { a, b } = &self {
+            if **a + *b <= -10 {
+                return ::deluxe::Result::Err(::deluxe::Error::new(
+                    ::syn::spanned::Spanned::span(a),
+                    "sum of a and b must be above -10",
+                ));
+            }
+        }
+        ::deluxe::Result::Ok(self)
+    }
+    fn validate_max(self) -> ::deluxe::Result<Self> {
+        if let Self::Values { a, b } = &self {
+            if **a + *b >= 10 {
+                return ::deluxe::Result::Err(::deluxe::Error::new(
+                    ::syn::spanned::Spanned::span(a),
+                    "sum of a and b must be below 10",
+                ));
+            }
+        }
+        ::deluxe::Result::Ok(self)
+    }
+}
+
+#[test]
+fn and_then() {
+    use ::std::prelude::v1::*;
+    let parse = parse_meta::<AndThens>;
+
+    ::std::assert_eq!(
+        parse(q! { { a = 5, b = 4 } }).unwrap(),
+        AndThens { a: 5.into(), b: 4 }
+    );
+    ::std::assert_eq!(
+        parse(q! { { a = -5, b = -6 } }).unwrap_err_string(),
+        "sum of a and b must be above -10",
+    );
+    ::std::assert_eq!(
+        parse(q! { { a = 5, b = 6 } }).unwrap_err_string(),
+        "sum of a and b must be below 10",
+    );
+
+    let parse = parse_meta::<AndThensEnum>;
+
+    ::std::assert_eq!(parse(q! { { empty } }).unwrap(), AndThensEnum::Empty);
+    ::std::assert_eq!(
+        parse(q! { { values(a = 5, b = 4) } }).unwrap(),
+        AndThensEnum::Values { a: 5.into(), b: 4 }
+    );
+    ::std::assert_eq!(
+        parse(q! { { values(a = -5, b = -6) } }).unwrap_err_string(),
+        "sum of a and b must be above -10",
+    );
+    ::std::assert_eq!(
+        parse(q! { { values(a = 5, b = 6) } }).unwrap_err_string(),
+        "sum of a and b must be below 10",
     );
 }

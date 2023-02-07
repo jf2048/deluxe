@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 #![no_implicit_prelude]
 
 use ::quote::quote as q;
@@ -10,12 +11,52 @@ use test_util::*;
 struct SingleAttribute(char);
 
 #[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, PartialEq, Debug)]
+#[deluxe(attributes(single))]
+struct SingleAttributeNamed {
+    c: char,
+}
+
+#[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, PartialEq, Debug)]
 #[deluxe(attributes(multi1, multi2))]
 struct MultiAttributes(char);
 
 #[test]
 fn multi_attributes() {
     use ::deluxe::HasAttributes;
+
+    let expr: ::syn::Expr = ::syn::parse2(q! { #[single('a')] true }).unwrap();
+    let m: SingleAttribute = ::deluxe::parse_attributes(&expr).unwrap();
+    ::std::assert_eq!(expr.attrs().len(), 1);
+    ::std::assert_eq!(m.0, 'a');
+
+    let expr: ::syn::Expr = ::syn::parse2(q! { #[single(c = 'a')] true }).unwrap();
+    let m: SingleAttributeNamed = ::deluxe::parse_attributes(&expr).unwrap();
+    ::std::assert_eq!(expr.attrs().len(), 1);
+    ::std::assert_eq!(m.c, 'a');
+
+    let expr: ::syn::Expr = ::syn::parse2(q! { true }).unwrap();
+    ::std::assert_eq!(
+        ::deluxe::parse_attributes::<::syn::Expr, SingleAttribute>(&expr).unwrap_err_string(),
+        "missing required field 0 on #[single]"
+    );
+
+    let expr: ::syn::Expr = ::syn::parse2(q! { #[single] true }).unwrap();
+    ::std::assert_eq!(
+        ::deluxe::parse_attributes::<::syn::Expr, SingleAttribute>(&expr).unwrap_err_string(),
+        "unexpected end of input, expected parentheses"
+    );
+
+    let expr: ::syn::Expr = ::syn::parse2(q! { true }).unwrap();
+    ::std::assert_eq!(
+        ::deluxe::parse_attributes::<::syn::Expr, SingleAttributeNamed>(&expr).unwrap_err_string(),
+        "missing required field #[single(c)]"
+    );
+
+    let expr: ::syn::Expr = ::syn::parse2(q! { #[single] true }).unwrap();
+    ::std::assert_eq!(
+        ::deluxe::parse_attributes::<::syn::Expr, SingleAttributeNamed>(&expr).unwrap_err_string(),
+        "unexpected end of input, expected parentheses"
+    );
 
     let expr: ::syn::Expr = ::syn::parse2(q! { #[multi1('a')] true }).unwrap();
     let m: MultiAttributes = ::deluxe::parse_attributes(&expr).unwrap();
@@ -30,7 +71,31 @@ fn multi_attributes() {
     let expr = ::syn::parse2(q! { true }).unwrap();
     ::std::assert_eq!(
         ::deluxe::parse_attributes::<::syn::Expr, MultiAttributes>(&expr).unwrap_err_string(),
-        "missing required field 0"
+        "missing required field 0 on #[multi1]"
+    );
+
+    let expr = ::syn::parse2(q! { #[multi1()] true }).unwrap();
+    ::std::assert_eq!(
+        ::deluxe::parse_attributes::<::syn::Expr, MultiAttributes>(&expr).unwrap_err_string(),
+        "missing required field 0 on #[multi1]"
+    );
+
+    let expr = ::syn::parse2(q! { #[multi2()] true }).unwrap();
+    ::std::assert_eq!(
+        ::deluxe::parse_attributes::<::syn::Expr, MultiAttributes>(&expr).unwrap_err_string(),
+        "missing required field 0 on #[multi2]"
+    );
+
+    let expr = ::syn::parse2(q! { #[multi2] true }).unwrap();
+    ::std::assert_eq!(
+        ::deluxe::parse_attributes::<::syn::Expr, MultiAttributes>(&expr).unwrap_err_string(),
+        "unexpected end of input, expected parentheses"
+    );
+
+    let expr = ::syn::parse2(q! { #[multi3('c')] true }).unwrap();
+    ::std::assert_eq!(
+        ::deluxe::parse_attributes::<::syn::Expr, MultiAttributes>(&expr).unwrap_err_string(),
+        "missing required field 0 on #[multi1]"
     );
 
     let expr = ::syn::parse2(q! { #[multi2('c')] #[multi2('d')] true }).unwrap();

@@ -127,6 +127,17 @@ pub trait ParseMetaItem: Sized {
     fn parse_meta_item_named(input: ParseStream, span: Span) -> Result<Self> {
         parse_named_meta_item(input, span)
     }
+    /// Fallback for when a required item is missing.
+    ///
+    /// Only called when a required (non-default) field was omitted from a parsed attribute.
+    /// Implementations on types that implement [`Default`] will most likely want to return
+    /// <code>[Ok]\([Default::default]\(\)\)</code> here.
+    ///
+    /// The default implementation returns an error.
+    #[inline]
+    fn missing_meta_item(name: &str, span: Span) -> Result<Self> {
+        Err(missing_field_error(name, span))
+    }
 }
 
 /// Parses a meta item for a structure with unnamed fields.
@@ -210,7 +221,7 @@ pub trait ParseMetaAppend: Sized {
     /// Parse the item from a group of inline named contexts.
     ///
     /// Fields with names matching any path in `paths` will be appended. Non-matching fields should
-    /// be skipped with [`crate::parse_helpers::skip_named_meta_item`].
+    /// be skipped with [`crate::parse_helpers::skip_meta_item`].
     fn parse_meta_append<'s, S, I, P>(inputs: &[S], paths: I) -> Result<Self>
     where
         S: Borrow<ParseBuffer<'s>>,
@@ -227,7 +238,7 @@ pub trait ParseMetaRest: Sized {
     /// Parse the item from a group of inline named contexts.
     ///
     /// Fields with names in `exclude` should be should be skipped with
-    /// [`crate::parse_helpers::skip_named_meta_item`].
+    /// [`crate::parse_helpers::skip_meta_item`].
     fn parse_meta_rest<'s, S: Borrow<ParseBuffer<'s>>>(
         inputs: &[S],
         exclude: &[&str],
@@ -351,6 +362,10 @@ impl<T: ParseMetaItem> ParseMetaItem for Option<T> {
     fn parse_meta_item_flag(span: Span) -> Result<Self> {
         T::parse_meta_item_flag(span).map(Some)
     }
+    #[inline]
+    fn missing_meta_item(_name: &str, _span: Span) -> Result<Self> {
+        Ok(None)
+    }
 }
 
 impl<T: ParseMetaItem, const N: usize> ParseMetaItem for [T; N] {
@@ -453,7 +468,7 @@ macro_rules! impl_parse_meta_item_collection {
                         let $item = <_>::parse_meta_item_named(input, pspan)?;
                         $push;
                     } else {
-                        skip_named_meta_item(input);
+                        skip_meta_item(input);
                     }
                     Ok(())
                 })?;
@@ -534,7 +549,7 @@ macro_rules! impl_parse_meta_item_set {
                             errors.push(span, "Duplicate key");
                         }
                     } else {
-                        skip_named_meta_item(input);
+                        skip_meta_item(input);
                     }
                     Ok(())
                 })?;
@@ -616,7 +631,7 @@ macro_rules! impl_parse_meta_item_map {
                         let start = input.span();
                         let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
                         if exclude.contains(&path_to_string($key.borrow()).as_str()) {
-                            skip_named_meta_item(input);
+                            skip_meta_item(input);
                         } else {
                             let span = input.span().join(start).unwrap();
                             let $value = <_>::parse_meta_item_named(input, start)?;

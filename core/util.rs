@@ -22,19 +22,27 @@ pub type Result<T> = syn::Result<T>;
 #[derive(Clone, Debug, Default)]
 #[repr(transparent)]
 pub struct Errors {
+    // RefCell here so this can be re-entrant when used from parser combinators
     errors: RefCell<Option<Error>>,
 }
 
 impl Errors {
     #[inline]
     /// Creates a new empty error list.
-    pub fn new() -> Self {
-        Default::default()
+    pub const fn new() -> Self {
+        Self {
+            errors: RefCell::new(None),
+        }
     }
     /// Checks if the list contains any errors.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.errors.borrow().is_none()
+    }
+    /// Reset the list to an empty state.
+    #[inline]
+    pub fn clear(&self) {
+        self.errors.take();
     }
     /// Pushes one error onto the list. This function is a wrapper around [`syn::Error::new`].
     #[inline]
@@ -65,6 +73,20 @@ impl Errors {
             storage.combine(error);
         } else {
             storage.replace(error);
+        }
+    }
+    /// Pushes an error onto the list from a [`Result`].
+    ///
+    /// If `result` is [`Err`], pushes the error and returns [`None`]. If `result` is [`Ok`],
+    /// returns <code>[Some]\(T)</code>.
+    #[inline]
+    pub fn push_result<T>(&self, result: Result<T>) -> Option<T> {
+        match result {
+            Ok(t) => Some(t),
+            Err(e) => {
+                self.push_syn(e);
+                None
+            }
         }
     }
     /// Appends all errors from `iter` into this list.
@@ -112,6 +134,27 @@ impl Errors {
             .take()
             .into_iter()
             .map(|e| e.into_compile_error())
+    }
+}
+
+impl quote::ToTokens for Errors {
+    #[inline]
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        tokens.extend(self.to_token_stream());
+    }
+    fn to_token_stream(&self) -> TokenStream {
+        self.errors
+            .borrow()
+            .as_ref()
+            .map(|e| e.to_compile_error())
+            .unwrap_or_default()
+    }
+    #[inline]
+    fn into_token_stream(self) -> TokenStream
+    where
+        Self: Sized,
+    {
+        self.into_compile_error().unwrap_or_default()
     }
 }
 
@@ -246,7 +289,7 @@ impl<T: ParseMetaItem> ParseMetaItem for SpannedValue<T> {
     fn parse_meta_item(input: ParseStream, mode: crate::ParseMode) -> Result<Self> {
         let span = input.span();
         let value = T::parse_meta_item(input, mode)?;
-        let span = input.span().join(span).unwrap();
+        let span = input.span().join(span).unwrap_or(span);
         Ok(Self { value, span })
     }
     #[inline]
@@ -267,6 +310,12 @@ impl<T: ParseMetaItem> ParseMetaItem for SpannedValue<T> {
             value: T::parse_meta_item_flag(span)?,
             span,
         })
+    }
+    #[inline]
+    fn parse_meta_item_named(input: ParseStream, span: Span) -> Result<Self> {
+        let value = T::parse_meta_item_named(input, span)?;
+        let span = input.span().join(span).unwrap_or(span);
+        Ok(Self { value, span })
     }
 }
 
@@ -363,5 +412,117 @@ impl<T> DerefMut for SpannedValue<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.value
+    }
+}
+
+/// A value for a boolean named field that can only be a name (set) or omitted (unset).
+///
+/// Similar to an <code>[Option]&lt;[SpannedValue]&lt;[bool]>></code> but does not allow `=` or
+/// `()` after the field name. Thus, it is only useful with named fields. Parsing this out of a
+/// tuple struct or tuple variant will always result in a parse error.
+///
+/// It is not necessary to use [`#[deluxe(default)]`](ParseMetaItem#deluxedefault-1) on a field
+/// using this type. The field will automatically be created with a `false` value if the name is
+/// omitted.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct Flag(Option<Span>);
+
+impl Flag {
+    /// Creates a new `true` flag value spanned to `span`.
+    #[inline]
+    pub fn set(span: Span) -> Self {
+        Self(Some(span))
+    }
+    /// Creates a new `true` flag value spanned to [`Span::call_site`].
+    #[inline]
+    pub fn set_call_site() -> Self {
+        Self(Some(Span::call_site()))
+    }
+    /// Creates a new `false` flag value.
+    #[inline]
+    pub fn unset() -> Self {
+        Self(None)
+    }
+    /// Returns `true` if the flag was set.
+    #[inline]
+    pub fn is_set(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
+impl From<bool> for Flag {
+    #[inline]
+    fn from(value: bool) -> Self {
+        Self(value.then(Span::call_site))
+    }
+}
+
+impl From<Flag> for bool {
+    #[inline]
+    fn from(value: Flag) -> Self {
+        value.is_set()
+    }
+}
+
+impl Eq for Flag {}
+
+impl PartialEq for Flag {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.is_set() == other.is_set()
+    }
+}
+
+impl PartialEq<bool> for Flag {
+    #[inline]
+    fn eq(&self, other: &bool) -> bool {
+        self.is_set() == *other
+    }
+}
+
+impl PartialEq<Flag> for bool {
+    #[inline]
+    fn eq(&self, other: &Flag) -> bool {
+        *self == other.is_set()
+    }
+}
+
+impl Spanned for Flag {
+    #[inline]
+    fn span(&self) -> Span {
+        self.0.unwrap_or_else(Span::call_site)
+    }
+}
+
+impl ParseMetaItem for Flag {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
+        Self::parse_meta_item_inline(&[input], mode)
+    }
+    #[inline]
+    fn parse_meta_item_inline<'s, S: Borrow<ParseBuffer<'s>>>(
+        inputs: &[S],
+        _mode: ParseMode,
+    ) -> Result<Self> {
+        Err(Error::new(
+            crate::parse_helpers::inputs_span(inputs),
+            "field with type `Flag` can only be a named field with no value",
+        ))
+    }
+    #[inline]
+    fn parse_meta_item_flag(span: Span) -> Result<Self> {
+        Ok(Self(Some(span)))
+    }
+    #[inline]
+    fn parse_meta_item_named(input: ParseStream, span: Span) -> Result<Self> {
+        if input.is_empty() || input.peek(syn::Token![,]) {
+            Self::parse_meta_item_flag(span)
+        } else {
+            Err(Error::new(input.span(), "unexpected token"))
+        }
+    }
+    #[inline]
+    fn missing_meta_item(_name: &str, _span: Span) -> Result<Self> {
+        Ok(Self::unset())
     }
 }

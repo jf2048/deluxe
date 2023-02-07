@@ -266,15 +266,12 @@ struct Authors(#[deluxe(flatten)] Vec<String>);
 pub fn derive_my_description(item: TokenStream) -> TokenStream {
     let mut input = syn::parse::<syn::DeriveInput>(item).unwrap();
 
+    // Parsing functions suffixed with `_optional` can be used to continue
+    // parsing after an error. Any errors will get accumulated into an `Errors`
+    // structure, which can then be manually included in the token output to
+    // produce compile errors.
     let errors = deluxe::Errors::new();
-    let MyDescription { name, version } = match deluxe::extract_attributes(&mut input) {
-        Ok(desc) => desc,
-        Err(e) => {
-            // Store the error and use a default implementation to avoid producing more errors
-            errors.push_syn(e);
-            Default::default()
-        }
-    };
+    let MyDescription { name, version } = deluxe::extract_attributes_optional(&mut input, &errors);
 
     let mut authors = Vec::new();
     if let syn::Data::Struct(s) = &mut input.data {
@@ -290,15 +287,15 @@ pub fn derive_my_description(item: TokenStream) -> TokenStream {
 
     let ident = &input.ident;
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
-    let errors = errors.into_compile_error();
 
+    // Make sure to include the errors in the output
     let tokens = quote::quote! {
+        #errors
         impl #impl_generics #ident #type_generics #where_clause {
             fn my_desc() -> &'static str {
                 concat!("Name: ", #name, ", Version: ", #version #(, ", Author: ", #authors)*)
             }
         }
-        #errors
     };
     tokens.into()
 }
@@ -314,13 +311,7 @@ pub fn my_desc_mod(
     };
 
     let errors = deluxe::Errors::new();
-    let MyDescription { name, version } = deluxe::parse::<MyDescription>(attr) {
-        Ok(desc) => desc,
-        Err(e) => {
-            errors.push_syn(e);
-            Default::default()
-        },
-    };
+    let MyDescription { name, version } = deluxe::parse_optional(attr, &errors);
 
     let (_, items) = module.content.as_mut().unwrap();
 
@@ -341,7 +332,7 @@ pub fn my_desc_mod(
         }
     });
 
-    let errors = errors.into_compile_error();
+    // Make sure to include the errors in the output
     let tokens = quote::quote! { #module #errors };
     tokens.into()
 }
