@@ -71,7 +71,7 @@ impl<'e> Enum<'e> {
             v.idents
                 .iter()
                 .filter_map(|ident| {
-                    if v.flatten.unwrap_or(false) {
+                    if v.flatten.unwrap_or(false) || v.is_skipped() {
                         return None;
                     }
                     let ident = ident.to_string();
