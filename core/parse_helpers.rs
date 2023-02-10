@@ -37,12 +37,28 @@ impl<T> FieldStatus<T> {
             Self::None => FieldStatus::None,
         }
     }
+    /// Returns `b` if the status is `Some`.
+    #[inline]
+    pub fn and<U>(self, b: FieldStatus<U>) -> FieldStatus<U> {
+        match self {
+            Self::Some(_) => b,
+            Self::ParseError => FieldStatus::ParseError,
+            Self::None => FieldStatus::None,
+        }
+    }
+
+    /// If the status is `Some`, calls `f` with the wrapped value and returns the result.
+    #[inline]
+    pub fn and_then<U, F: FnOnce(T) -> FieldStatus<U>>(self, f: F) -> FieldStatus<U> {
+        match self {
+            Self::Some(x) => f(x),
+            Self::ParseError => FieldStatus::ParseError,
+            Self::None => FieldStatus::None,
+        }
+    }
     /// Maps a `FieldStatus<T>` to `FieldStatus<U>` by applying a function to a contained value.
     #[inline]
-    pub fn map<U, F>(self, f: F) -> FieldStatus<U>
-    where
-        F: FnOnce(T) -> U,
-    {
+    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> FieldStatus<U> {
         match self {
             Self::Some(x) => FieldStatus::Some(f(x)),
             Self::ParseError => FieldStatus::ParseError,
@@ -63,6 +79,25 @@ impl<T> FieldStatus<T> {
     #[inline]
     pub const fn is_some(&self) -> bool {
         matches!(self, Self::Some(_))
+    }
+    /// Returns the status if it contains a value, or if it is `None` then returns `b`.
+    #[inline]
+    pub fn or(self, b: FieldStatus<T>) -> FieldStatus<T> {
+        match self {
+            Self::Some(x) => FieldStatus::Some(x),
+            Self::ParseError => FieldStatus::ParseError,
+            Self::None => b,
+        }
+    }
+    /// Returns the status if it contains a value, or if it is `None` then calls `f` and returns
+    /// the result.
+    #[inline]
+    pub fn or_else<F: FnOnce() -> FieldStatus<T>>(self, f: F) -> FieldStatus<T> {
+        match self {
+            Self::Some(x) => FieldStatus::Some(x),
+            Self::ParseError => FieldStatus::ParseError,
+            Self::None => f(),
+        }
     }
     /// Returns the contained [`FieldStatus::Some`] value, consuming the `self` value.
     ///
@@ -87,10 +122,7 @@ impl<T> FieldStatus<T> {
     }
     /// Returns the contained [`FieldStatus::Some`] value or computes it from a closure.
     #[inline]
-    pub fn unwrap_or_else<F>(self, f: F) -> T
-    where
-        F: FnOnce() -> T,
-    {
+    pub fn unwrap_or_else<F: FnOnce() -> T>(self, f: F) -> T {
         match self {
             Self::Some(x) => x,
             _ => f(),

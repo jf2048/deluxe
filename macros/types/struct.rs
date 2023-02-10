@@ -197,7 +197,7 @@ impl<'s> Struct<'s> {
             }
         };
         let default_set = self.default.as_ref().map(|d| {
-            let expr = d.to_expr(&syn::parse_quote! { Self }, priv_);
+            let expr = d.to_expr(Some(&syn::parse_quote_spanned! { d.span() => Self }), priv_);
             quote_mixed! {
                 let mut target: Self = #expr;
             }

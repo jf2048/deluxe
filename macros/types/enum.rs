@@ -27,7 +27,10 @@ impl<'e> Enum<'e> {
     pub fn to_inline_parsing_tokens(&self, crate_: &syn::Path, mode: TokenMode) -> TokenStream {
         let default = self.default.as_ref().map(|d| {
             let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
-            d.to_expr(&parse_quote_mixed! { Self }, &priv_path)
+            d.to_expr(
+                Some(&syn::parse_quote_spanned! { d.span() => Self }),
+                &priv_path,
+            )
         });
         Variant::to_parsing_tokens(
             &self.variants,

@@ -16,11 +16,18 @@ pub enum FieldDefault {
 }
 
 impl FieldDefault {
-    pub fn to_expr(&self, ty: &syn::Type, priv_: &syn::Path) -> Cow<syn::Expr> {
+    pub fn to_expr(&self, ty: Option<&syn::Type>, priv_: &syn::Path) -> Cow<syn::Expr> {
         match self {
-            FieldDefault::Default(span) => Cow::Owned(syn::parse_quote_spanned! { *span =>
-                <#ty as #priv_::Default>::default()
-            }),
+            FieldDefault::Default(span) => {
+                let ty = if let Some(ty) = ty {
+                    quote_spanned! { ty.span() => #ty }
+                } else {
+                    quote_spanned! { *span => _ }
+                };
+                Cow::Owned(syn::parse_quote_spanned! { *span =>
+                    <#ty as #priv_::Default>::default()
+                })
+            }
             FieldDefault::Expr(expr) => Cow::Borrowed(expr),
         }
     }
@@ -191,6 +198,11 @@ impl ParseMetaItem for FieldContainer {
     }
 }
 
+pub enum Transform {
+    Map(syn::Expr),
+    AndThen(syn::Expr),
+}
+
 pub struct Field<'f> {
     pub field: &'f syn::Field,
     pub idents: Vec<syn::Ident>,
@@ -201,6 +213,7 @@ pub struct Field<'f> {
     pub rest: Option<SpannedValue<bool>>,
     pub container: Option<FieldContainer>,
     pub skip: Option<SpannedValue<bool>>,
+    pub transforms: Vec<Transform>,
 }
 
 pub struct ItemDef {
@@ -247,12 +260,21 @@ impl<'f> Field<'f> {
     pub fn is_parsable(&self) -> bool {
         !self.is_container() && !self.skip.map(|v| *v).unwrap_or(false)
     }
+    #[inline]
+    pub fn constraint_ty(&self) -> TokenStream {
+        let ty = &self.field.ty;
+        if self.transforms.is_empty() {
+            quote_spanned! { ty.span() => #ty }
+        } else {
+            quote_spanned! { ty.span() => _ }
+        }
+    }
     pub fn parse_path(&self, crate_: &syn::Path, trait_: &str) -> TokenStream {
         self.with
             .as_ref()
             .map(|m| quote_spanned! { m.span() => #m })
             .unwrap_or_else(|| {
-                let ty = &self.field.ty;
+                let ty = self.constraint_ty();
                 let trait_ = syn::Ident::new(trait_, Span::mixed_site());
                 quote_spanned! { ty.span() => <#ty as #crate_::#trait_> }
             })
@@ -268,6 +290,8 @@ impl<'f> Field<'f> {
             "with",
             "container",
             "skip",
+            "map",
+            "and_then",
         ]
     }
     pub(super) fn to_accepts_all_tokens(
@@ -301,7 +325,7 @@ impl<'f> Field<'f> {
                     prefix: Some(prefix),
                     ..
                 }) => {
-                    let ty = &f.field.ty;
+                    let ty = f.constraint_ty();
                     let prefix = parse_helpers::path_to_string(prefix);
                     let names = quote_spanned! { ty.span() =>
                         <#ty as #crate_::ParseMetaFlatNamed>::field_names()
@@ -322,7 +346,7 @@ impl<'f> Field<'f> {
                     prefix: None,
                     ..
                 }) => {
-                    let ty = &f.field.ty;
+                    let ty = f.constraint_ty();
                     let names = quote_spanned! { ty.span() =>
                         <#ty as #crate_::ParseMetaFlatNamed>::field_names()
                     };
@@ -612,7 +636,7 @@ impl<'f> Field<'f> {
                             }
                         });
                     if is_unnamed {
-                        let ty = &f.field.ty;
+                        let ty = f.constraint_ty();
                         if f.flatten.as_ref().map(|f| f.value).unwrap_or(false) {
                             extra_counts.extend(quote_spanned! { ty.span() =>
                                 + <#ty as #crate_::ParseMetaFlatUnnamed>::field_count().unwrap_or(0)
@@ -625,44 +649,57 @@ impl<'f> Field<'f> {
                 })
                 .collect::<Vec<_>>()
         };
-        let field_unwraps = fields.iter().enumerate().filter_map(|(i, f)| {
+        let field_sets = fields.iter().enumerate().map(|(i, f)| {
             let name = &names[i];
             let ty = &f.field.ty;
-            if matches!(target, ParseTarget::Var(_)) {
-                f.default.as_ref().map(|def| {
-                    let expr = def.to_expr(ty, priv_);
-                    quote_mixed! {
-                        if #name.is_none() {
-                            #name = #priv_::FieldStatus::Some(#expr);
-                        }
-                    }
-                })
-            } else {
-                Some(match &f.default {
-                    Some(def) => {
-                        let expr = def.to_expr(ty, priv_);
-                        quote_mixed! {
-                            let #name = #name.unwrap_or_else(|| #expr);
-                        }
-                    }
-                    None => quote_mixed! {
-                        let #name = #name.unwrap();
+            let transforms = f.transforms.iter().enumerate().map(|(ti, t)| {
+                let constraint = match ti + 1 == f.transforms.len() {
+                    true => quote_spanned! { ty.span() => #ty },
+                    false => quote_spanned! { ty.span() => _ },
+                };
+                match t {
+                    Transform::Map(expr) => quote_mixed! {
+                        let #name: #priv_::FieldStatus<#constraint> = #name.map(#expr);
                     },
-                })
+                    Transform::AndThen(expr) => quote_mixed! {
+                        let #name: #priv_::FieldStatus<#constraint> = #name.and_then(|v| {
+                            match errors.push_result((#expr)(v)) {
+                                #priv_::Option::Some(v) => #priv_::FieldStatus::Some(v),
+                                _ => #priv_::FieldStatus::ParseError,
+                            }
+                        });
+                    },
+                }
+            });
+            let set_default = f.default.as_ref().map(|def| {
+                let expr = def.to_expr(f.transforms.is_empty().then_some(ty), priv_);
+                quote_mixed! {
+                    let #name = #name.or_else(|| #priv_::FieldStatus::Some(#expr));
+                }
+            });
+            quote_mixed! {
+                #set_default
+                #(#transforms)*
             }
+        });
+        let field_unwraps = fields.iter().enumerate().filter_map(|(i, _)| {
+            (!matches!(target, ParseTarget::Var(_))).then(|| {
+                let name = &names[i];
+                quote_mixed! {
+                    let #name = #name.unwrap();
+                }
+            })
         });
 
         let option_inits = fields.iter().enumerate().map(|(i, f)| {
             let name = &names[i];
-            let ty = &f.field.ty;
+            let ty = f.constraint_ty();
             quote_mixed! {
                 let mut #name: #priv_::FieldStatus::<#ty> = #priv_::FieldStatus::None;
             }
         });
         let errors_init = (!transparent).then(|| {
-            quote_mixed! {
-                let errors = #crate_::Errors::new();
-            }
+            quote_mixed! { let errors = #crate_::Errors::new(); }
         });
         let errors_check = (!transparent).then(|| {
             quote_mixed! {
@@ -736,6 +773,7 @@ impl<'f> Field<'f> {
                     #(#flat_fields)*
                     #(#container_def)*
                     #(#field_errors)*
+                    #(#field_sets)*
                     #errors_check
                     #(#field_unwraps)*
                     #ret
@@ -773,6 +811,7 @@ impl<'f> Field<'f> {
                 let post = quote_mixed! {
                     #(#container_def)*
                     #(#field_errors)*
+                    #(#field_sets)*
                     #errors_check
                     #(#field_unwraps)*
                     #ret
@@ -894,9 +933,9 @@ impl<'f> Field<'f> {
                     f.is_parsable() && !f.append.map(|v| *v).unwrap_or(false) && !f.rest.map(|v| *v).unwrap_or(false)
                 }).enumerate().map(|(index, (real_index, f))| {
                     let name = &names[real_index];
-                    let ty = &f.field.ty;
                     let call = f.to_parse_call_tokens(&inputs_expr, allowed_expr, crate_, priv_);
                     let increment = any_flat.then(|| {
+                        let ty = f.constraint_ty();
                         match f.is_flat() {
                             true => quote_mixed! {
                                 if let #priv_::Option::Some(count) = <#ty as #crate_::ParseMetaFlatUnnamed>::field_count() {
@@ -1030,6 +1069,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                 let mut rename = FieldStatus::None;
                 let mut container = FieldStatus::None;
                 let mut skip = FieldStatus::None;
+                let mut transforms = Vec::new();
                 errors.push_result(parse_helpers::parse_struct(inputs, |input, path, span| {
                     match path {
                         "flatten" => flatten.parse_named_item("flatten", input, span, &errors),
@@ -1108,6 +1148,18 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                             container.parse_named_item("container", input, span, &errors)
                         }
                         "skip" => skip.parse_named_item("container", input, span, &errors),
+                        "map" => {
+                            match errors.push_result(<_>::parse_meta_item_named(input, span)) {
+                                Some(e) => transforms.push(Transform::Map(e)),
+                                None => parse_helpers::skip_meta_item(input),
+                            }
+                        }
+                        "and_then" => {
+                            match errors.push_result(<_>::parse_meta_item_named(input, span)) {
+                                Some(e) => transforms.push(Transform::AndThen(e)),
+                                None => parse_helpers::skip_meta_item(input),
+                            }
+                        }
                         _ => {
                             parse_helpers::check_unknown_attribute(
                                 path,
@@ -1144,6 +1196,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                     rest: rest.into(),
                     container: container.into(),
                     skip: skip.into(),
+                    transforms,
                 })
             },
         )
