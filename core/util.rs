@@ -135,6 +135,12 @@ impl Errors {
             .into_iter()
             .map(|e| e.into_compile_error())
     }
+    /// Creates a token stream containing the current set of errors and `item`.
+    pub fn output_with<Q: quote::ToTokens>(self, item: Q) -> TokenStream {
+        let mut tokens = item.into_token_stream();
+        quote::ToTokens::to_tokens(&self, &mut tokens);
+        tokens
+    }
 }
 
 impl quote::ToTokens for Errors {
