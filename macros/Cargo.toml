@@ -18,5 +18,5 @@ if_chain = "1.0.2"
 proc-macro2 = "1.0.38"
 proc-macro-crate = "1.1.3"
 quote = "1.0.18"
-syn = { version = "1.0.96", features = ["full", "parsing"], default-features = false }
-deluxe-core = { path = "../core", version = "0.3.2" }
+syn = { version = "1.0.96", features = ["proc-macro", "full", "parsing"], default-features = false }
+deluxe-core = { path = "../core", version = "0.3.2", features = ["full"], default-features = false }

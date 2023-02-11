@@ -12,6 +12,8 @@ repository = "https://github.com/jf2048/deluxe.git"
 path = "lib.rs"
 
 [features]
+default = ["full", "proc-macro"]
+full = ["syn/full"]
 proc-macro = ["syn/proc-macro"]
 
 [dependencies]
@@ -20,4 +22,4 @@ bitflags = "1.3.2"
 proc-macro2 = "1.0.38"
 quote = "1.0.18"
 strsim = "0.10.0"
-syn = { version = "1.0.96", features = ["clone-impls", "derive", "extra-traits", "full", "parsing", "printing"], default-features = false }
+syn = { version = "1.0.96", features = ["clone-impls", "derive", "extra-traits", "parsing", "printing"], default-features = false }

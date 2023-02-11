@@ -1,11 +1,10 @@
-use proc_macro2::TokenStream;
 use syn::parse::{Parse, Parser};
 
 use deluxe_core::Errors;
 
 #[inline]
-pub fn parse<T: Parse>(input: TokenStream, errors: &Errors) -> Option<T> {
-    errors.push_result(<T as Parse>::parse.parse2(input))
+pub fn parse<T: Parse>(input: proc_macro::TokenStream, errors: &Errors) -> Option<T> {
+    errors.push_result(<T as Parse>::parse.parse(input))
 }
 
 fn crate_path(errors: Option<&Errors>) -> Option<syn::Path> {

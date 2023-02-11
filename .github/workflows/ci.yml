@@ -23,6 +23,19 @@ jobs:
       - run: cargo build -r --all-features --workspace
       - run: cargo test -r --all-features --workspace
 
+  build_and_test_no_default:
+    name: Deluxe No Default Features
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - run: cargo build -r --no-default-features --workspace
+      - run: cargo test -r --no-default-features --workspace
+
   rustfmt:
     name: Deluxe Rustfmt
     runs-on: ubuntu-latest

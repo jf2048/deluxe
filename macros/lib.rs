@@ -33,7 +33,7 @@ use proc_macro::TokenStream;
 #[proc_macro_derive(ExtractAttributes, attributes(deluxe))]
 pub fn derive_extract_attributes(item: TokenStream) -> TokenStream {
     let errors = Errors::new();
-    let mut tokens = util::parse::<syn::DeriveInput>(item.into(), &errors)
+    let mut tokens = util::parse::<syn::DeriveInput>(item, &errors)
         .map(|input| {
             parse_attributes::impl_parse_attributes(input, &errors, parse_attributes::Mode::Extract)
         })
@@ -113,7 +113,7 @@ pub fn derive_extract_attributes(item: TokenStream) -> TokenStream {
 #[proc_macro_derive(ParseAttributes, attributes(deluxe))]
 pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
     let errors = Errors::new();
-    let mut tokens = util::parse::<syn::DeriveInput>(item.into(), &errors)
+    let mut tokens = util::parse::<syn::DeriveInput>(item, &errors)
         .map(|input| {
             parse_attributes::impl_parse_attributes(input, &errors, parse_attributes::Mode::Parse)
         })
@@ -400,7 +400,7 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 #[proc_macro_derive(ParseMetaItem, attributes(deluxe))]
 pub fn derive_parse_meta_item(item: TokenStream) -> TokenStream {
     let errors = Errors::new();
-    let mut tokens = util::parse::<syn::DeriveInput>(item.into(), &errors)
+    let mut tokens = util::parse::<syn::DeriveInput>(item, &errors)
         .map(|input| parse_meta_item::impl_parse_meta_item(input, &errors))
         .unwrap_or_default();
     tokens.extend(errors.into_compile_errors());

@@ -1145,14 +1145,17 @@ impl<T: ToKeyString, P: ToTokens> ToKeyString for Punctuated<T, P> {
         Cow::Owned(s)
     }
 }
+
 macro_rules! impl_parse_meta_item_syn {
-    ($ty:ty) => {
+    ($(#[$attr:meta])* $ty:ty) => {
+        $(#[$attr])*
         impl ParseMetaItem for $ty {
             #[inline]
             fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
                 input.parse()
             }
         }
+        $(#[$attr])*
         impl ToKeyString for $ty {
             #[inline]
             fn to_key_string(&self) -> Cow<str> {
@@ -1160,10 +1163,18 @@ macro_rules! impl_parse_meta_item_syn {
             }
         }
     };
+    ($ty:ty, #full) => {
+        impl_parse_meta_item_syn!(
+            #[cfg(feature = "full")]
+            #[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
+            $ty
+        );
+    };
 }
 
 macro_rules! impl_parse_meta_paren_item_syn {
-    ($ty:ty) => {
+    ($(#[$attr:meta])* $ty:ty) => {
+        $(#[$attr])*
         impl ParseMetaItem for $ty {
             #[inline]
             fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
@@ -1178,12 +1189,20 @@ macro_rules! impl_parse_meta_paren_item_syn {
                 }
             }
         }
+        $(#[$attr])*
         impl ToKeyString for $ty {
             #[inline]
             fn to_key_string(&self) -> Cow<str> {
                 Cow::Owned(self.to_token_stream().to_string())
             }
         }
+    };
+    ($ty:ty, #full) => {
+        impl_parse_meta_paren_item_syn!(
+            #[cfg(feature = "full")]
+            #[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
+            $ty
+        );
     };
 }
 
@@ -1192,22 +1211,22 @@ impl_parse_meta_item_syn!(syn::BareFnArg);
 impl_parse_meta_item_syn!(syn::BoundLifetimes);
 impl_parse_meta_item_syn!(syn::BinOp);
 impl_parse_meta_paren_item_syn!(syn::Binding);
-impl_parse_meta_item_syn!(syn::Expr);
-impl_parse_meta_item_syn!(syn::ExprArray);
-impl_parse_meta_paren_item_syn!(syn::ExprAssign);
-impl_parse_meta_item_syn!(syn::ExprCall);
-impl_parse_meta_item_syn!(syn::ExprCast);
-impl_parse_meta_item_syn!(syn::ExprField);
-impl_parse_meta_item_syn!(syn::ExprIndex);
-impl_parse_meta_item_syn!(syn::ExprLit);
-impl_parse_meta_item_syn!(syn::ExprMethodCall);
-impl_parse_meta_item_syn!(syn::ExprParen);
-impl_parse_meta_item_syn!(syn::ExprPath);
-impl_parse_meta_item_syn!(syn::ExprRange);
-impl_parse_meta_item_syn!(syn::ExprRepeat);
-impl_parse_meta_item_syn!(syn::ExprTuple);
-impl_parse_meta_item_syn!(syn::ExprType);
-impl_parse_meta_item_syn!(syn::FnArg);
+impl_parse_meta_item_syn!(syn::Expr, #full);
+impl_parse_meta_item_syn!(syn::ExprArray, #full);
+impl_parse_meta_paren_item_syn!(syn::ExprAssign, #full);
+impl_parse_meta_item_syn!(syn::ExprCall, #full);
+impl_parse_meta_item_syn!(syn::ExprCast, #full);
+impl_parse_meta_item_syn!(syn::ExprField, #full);
+impl_parse_meta_item_syn!(syn::ExprIndex, #full);
+impl_parse_meta_item_syn!(syn::ExprLit, #full);
+impl_parse_meta_item_syn!(syn::ExprMethodCall, #full);
+impl_parse_meta_item_syn!(syn::ExprParen, #full);
+impl_parse_meta_item_syn!(syn::ExprPath, #full);
+impl_parse_meta_item_syn!(syn::ExprRange, #full);
+impl_parse_meta_item_syn!(syn::ExprRepeat, #full);
+impl_parse_meta_item_syn!(syn::ExprTuple, #full);
+impl_parse_meta_item_syn!(syn::ExprType, #full);
+impl_parse_meta_item_syn!(syn::FnArg, #full);
 impl_parse_meta_item_syn!(syn::GenericParam);
 impl ParseMetaItem for syn::Ident {
     #[inline]
@@ -1229,7 +1248,7 @@ impl_parse_meta_item_syn!(syn::MetaList);
 impl_parse_meta_paren_item_syn!(syn::Meta);
 impl_parse_meta_paren_item_syn!(syn::MetaNameValue);
 impl_parse_meta_paren_item_syn!(syn::NestedMeta);
-impl_parse_meta_item_syn!(syn::Pat);
+impl_parse_meta_item_syn!(syn::Pat, #full);
 impl ParseMetaItem for syn::Path {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
@@ -1244,8 +1263,8 @@ impl ToKeyString for syn::Path {
 }
 impl_parse_meta_item_syn!(syn::PathSegment);
 impl_parse_meta_item_syn!(syn::ParenthesizedGenericArguments);
-impl_parse_meta_item_syn!(syn::Receiver);
-impl_parse_meta_item_syn!(syn::Signature);
+impl_parse_meta_item_syn!(syn::Receiver, #full);
+impl_parse_meta_item_syn!(syn::Signature, #full);
 impl_parse_meta_item_syn!(syn::TraitBound);
 impl_parse_meta_item_syn!(syn::Type);
 impl_parse_meta_item_syn!(syn::TypeArray);
@@ -1258,7 +1277,7 @@ impl_parse_meta_item_syn!(syn::TypeSlice);
 impl_parse_meta_item_syn!(syn::TypeTraitObject);
 impl_parse_meta_item_syn!(syn::TypeTuple);
 impl_parse_meta_item_syn!(syn::TypeParamBound);
-impl_parse_meta_item_syn!(syn::UseTree);
+impl_parse_meta_item_syn!(syn::UseTree, #full);
 impl_parse_meta_item_syn!(syn::UnOp);
 impl_parse_meta_item_syn!(syn::Visibility);
 impl_parse_meta_item_syn!(syn::WherePredicate);

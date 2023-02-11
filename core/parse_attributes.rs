@@ -89,7 +89,8 @@ impl HasAttributes for Vec<syn::Attribute> {
 }
 
 macro_rules! impl_has_attributes {
-    ($ty:ty) => {
+    ($(#[$attr:meta])* $ty:ty) => {
+        $(#[$attr])*
         impl HasAttributes for $ty {
             #[inline]
             fn attrs(&self) -> &[syn::Attribute] {
@@ -101,13 +102,22 @@ macro_rules! impl_has_attributes {
             }
         }
     };
+    ($ty:ty, #full) => {
+        impl_has_attributes!(
+            #[cfg(feature = "full")]
+            #[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
+            $ty
+        );
+    };
 }
 
-impl_has_attributes!(syn::Arm);
+impl_has_attributes!(syn::Arm, #full);
 impl_has_attributes!(syn::BareFnArg);
 impl_has_attributes!(syn::ConstParam);
 impl_has_attributes!(syn::DeriveInput);
 
+#[cfg(feature = "full")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
 impl HasAttributes for syn::Expr {
     fn attrs(&self) -> &[syn::Attribute] {
         match self {
@@ -207,50 +217,52 @@ impl HasAttributes for syn::Expr {
     }
 }
 
-impl_has_attributes!(syn::ExprArray);
-impl_has_attributes!(syn::ExprAssign);
-impl_has_attributes!(syn::ExprAssignOp);
-impl_has_attributes!(syn::ExprAsync);
-impl_has_attributes!(syn::ExprAwait);
-impl_has_attributes!(syn::ExprBinary);
-impl_has_attributes!(syn::ExprBlock);
-impl_has_attributes!(syn::ExprBox);
-impl_has_attributes!(syn::ExprBreak);
-impl_has_attributes!(syn::ExprCall);
-impl_has_attributes!(syn::ExprCast);
-impl_has_attributes!(syn::ExprClosure);
-impl_has_attributes!(syn::ExprContinue);
-impl_has_attributes!(syn::ExprField);
-impl_has_attributes!(syn::ExprForLoop);
-impl_has_attributes!(syn::ExprGroup);
-impl_has_attributes!(syn::ExprIf);
-impl_has_attributes!(syn::ExprIndex);
-impl_has_attributes!(syn::ExprLet);
-impl_has_attributes!(syn::ExprLit);
-impl_has_attributes!(syn::ExprLoop);
-impl_has_attributes!(syn::ExprMacro);
-impl_has_attributes!(syn::ExprMatch);
-impl_has_attributes!(syn::ExprMethodCall);
-impl_has_attributes!(syn::ExprParen);
-impl_has_attributes!(syn::ExprPath);
-impl_has_attributes!(syn::ExprRange);
-impl_has_attributes!(syn::ExprReference);
-impl_has_attributes!(syn::ExprRepeat);
-impl_has_attributes!(syn::ExprReturn);
-impl_has_attributes!(syn::ExprStruct);
-impl_has_attributes!(syn::ExprTry);
-impl_has_attributes!(syn::ExprTryBlock);
-impl_has_attributes!(syn::ExprTuple);
-impl_has_attributes!(syn::ExprType);
-impl_has_attributes!(syn::ExprUnary);
-impl_has_attributes!(syn::ExprUnsafe);
-impl_has_attributes!(syn::ExprWhile);
-impl_has_attributes!(syn::ExprYield);
+impl_has_attributes!(syn::ExprArray, #full);
+impl_has_attributes!(syn::ExprAssign, #full);
+impl_has_attributes!(syn::ExprAssignOp, #full);
+impl_has_attributes!(syn::ExprAsync, #full);
+impl_has_attributes!(syn::ExprAwait, #full);
+impl_has_attributes!(syn::ExprBinary, #full);
+impl_has_attributes!(syn::ExprBlock, #full);
+impl_has_attributes!(syn::ExprBox, #full);
+impl_has_attributes!(syn::ExprBreak, #full);
+impl_has_attributes!(syn::ExprCall, #full);
+impl_has_attributes!(syn::ExprCast, #full);
+impl_has_attributes!(syn::ExprClosure, #full);
+impl_has_attributes!(syn::ExprContinue, #full);
+impl_has_attributes!(syn::ExprField, #full);
+impl_has_attributes!(syn::ExprForLoop, #full);
+impl_has_attributes!(syn::ExprGroup, #full);
+impl_has_attributes!(syn::ExprIf, #full);
+impl_has_attributes!(syn::ExprIndex, #full);
+impl_has_attributes!(syn::ExprLet, #full);
+impl_has_attributes!(syn::ExprLit, #full);
+impl_has_attributes!(syn::ExprLoop, #full);
+impl_has_attributes!(syn::ExprMacro, #full);
+impl_has_attributes!(syn::ExprMatch, #full);
+impl_has_attributes!(syn::ExprMethodCall, #full);
+impl_has_attributes!(syn::ExprParen, #full);
+impl_has_attributes!(syn::ExprPath, #full);
+impl_has_attributes!(syn::ExprRange, #full);
+impl_has_attributes!(syn::ExprReference, #full);
+impl_has_attributes!(syn::ExprRepeat, #full);
+impl_has_attributes!(syn::ExprReturn, #full);
+impl_has_attributes!(syn::ExprStruct, #full);
+impl_has_attributes!(syn::ExprTry, #full);
+impl_has_attributes!(syn::ExprTryBlock, #full);
+impl_has_attributes!(syn::ExprTuple, #full);
+impl_has_attributes!(syn::ExprType, #full);
+impl_has_attributes!(syn::ExprUnary, #full);
+impl_has_attributes!(syn::ExprUnsafe, #full);
+impl_has_attributes!(syn::ExprWhile, #full);
+impl_has_attributes!(syn::ExprYield, #full);
 impl_has_attributes!(syn::Field);
-impl_has_attributes!(syn::FieldPat);
-impl_has_attributes!(syn::FieldValue);
-impl_has_attributes!(syn::File);
+impl_has_attributes!(syn::FieldPat, #full);
+impl_has_attributes!(syn::FieldValue, #full);
+impl_has_attributes!(syn::File, #full);
 
+#[cfg(feature = "full")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
 impl HasAttributes for syn::ForeignItem {
     fn attrs(&self) -> &[syn::Attribute] {
         match self {
@@ -279,11 +291,13 @@ impl HasAttributes for syn::ForeignItem {
     }
 }
 
-impl_has_attributes!(syn::ForeignItemFn);
-impl_has_attributes!(syn::ForeignItemMacro);
-impl_has_attributes!(syn::ForeignItemStatic);
-impl_has_attributes!(syn::ForeignItemType);
+impl_has_attributes!(syn::ForeignItemFn, #full);
+impl_has_attributes!(syn::ForeignItemMacro, #full);
+impl_has_attributes!(syn::ForeignItemStatic, #full);
+impl_has_attributes!(syn::ForeignItemType, #full);
 
+#[cfg(feature = "full")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
 impl HasAttributes for syn::ImplItem {
     fn attrs(&self) -> &[syn::Attribute] {
         match self {
@@ -312,11 +326,13 @@ impl HasAttributes for syn::ImplItem {
     }
 }
 
-impl_has_attributes!(syn::ImplItemConst);
-impl_has_attributes!(syn::ImplItemMacro);
-impl_has_attributes!(syn::ImplItemMethod);
-impl_has_attributes!(syn::ImplItemType);
+impl_has_attributes!(syn::ImplItemConst, #full);
+impl_has_attributes!(syn::ImplItemMacro, #full);
+impl_has_attributes!(syn::ImplItemMethod, #full);
+impl_has_attributes!(syn::ImplItemType, #full);
 
+#[cfg(feature = "full")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
 impl HasAttributes for syn::Item {
     fn attrs(&self) -> &[syn::Attribute] {
         match self {
@@ -369,25 +385,27 @@ impl HasAttributes for syn::Item {
     }
 }
 
-impl_has_attributes!(syn::ItemConst);
-impl_has_attributes!(syn::ItemEnum);
-impl_has_attributes!(syn::ItemExternCrate);
-impl_has_attributes!(syn::ItemFn);
-impl_has_attributes!(syn::ItemForeignMod);
-impl_has_attributes!(syn::ItemImpl);
-impl_has_attributes!(syn::ItemMacro);
-impl_has_attributes!(syn::ItemMacro2);
-impl_has_attributes!(syn::ItemMod);
-impl_has_attributes!(syn::ItemStatic);
-impl_has_attributes!(syn::ItemStruct);
-impl_has_attributes!(syn::ItemTrait);
-impl_has_attributes!(syn::ItemTraitAlias);
-impl_has_attributes!(syn::ItemType);
-impl_has_attributes!(syn::ItemUnion);
-impl_has_attributes!(syn::ItemUse);
+impl_has_attributes!(syn::ItemConst, #full);
+impl_has_attributes!(syn::ItemEnum, #full);
+impl_has_attributes!(syn::ItemExternCrate, #full);
+impl_has_attributes!(syn::ItemFn, #full);
+impl_has_attributes!(syn::ItemForeignMod, #full);
+impl_has_attributes!(syn::ItemImpl, #full);
+impl_has_attributes!(syn::ItemMacro, #full);
+impl_has_attributes!(syn::ItemMacro2, #full);
+impl_has_attributes!(syn::ItemMod, #full);
+impl_has_attributes!(syn::ItemStatic, #full);
+impl_has_attributes!(syn::ItemStruct, #full);
+impl_has_attributes!(syn::ItemTrait, #full);
+impl_has_attributes!(syn::ItemTraitAlias, #full);
+impl_has_attributes!(syn::ItemType, #full);
+impl_has_attributes!(syn::ItemUnion, #full);
+impl_has_attributes!(syn::ItemUse, #full);
 impl_has_attributes!(syn::LifetimeDef);
-impl_has_attributes!(syn::Local);
+impl_has_attributes!(syn::Local, #full);
 
+#[cfg(feature = "full")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
 impl HasAttributes for syn::Pat {
     fn attrs(&self) -> &[syn::Attribute] {
         match self {
@@ -438,23 +456,25 @@ impl HasAttributes for syn::Pat {
     }
 }
 
-impl_has_attributes!(syn::PatBox);
-impl_has_attributes!(syn::PatIdent);
-impl_has_attributes!(syn::PatLit);
-impl_has_attributes!(syn::PatMacro);
-impl_has_attributes!(syn::PatOr);
-impl_has_attributes!(syn::PatPath);
-impl_has_attributes!(syn::PatRange);
-impl_has_attributes!(syn::PatReference);
-impl_has_attributes!(syn::PatRest);
-impl_has_attributes!(syn::PatSlice);
-impl_has_attributes!(syn::PatStruct);
-impl_has_attributes!(syn::PatTuple);
-impl_has_attributes!(syn::PatTupleStruct);
-impl_has_attributes!(syn::PatType);
-impl_has_attributes!(syn::PatWild);
-impl_has_attributes!(syn::Receiver);
+impl_has_attributes!(syn::PatBox, #full);
+impl_has_attributes!(syn::PatIdent, #full);
+impl_has_attributes!(syn::PatLit, #full);
+impl_has_attributes!(syn::PatMacro, #full);
+impl_has_attributes!(syn::PatOr, #full);
+impl_has_attributes!(syn::PatPath, #full);
+impl_has_attributes!(syn::PatRange, #full);
+impl_has_attributes!(syn::PatReference, #full);
+impl_has_attributes!(syn::PatRest, #full);
+impl_has_attributes!(syn::PatSlice, #full);
+impl_has_attributes!(syn::PatStruct, #full);
+impl_has_attributes!(syn::PatTuple, #full);
+impl_has_attributes!(syn::PatTupleStruct, #full);
+impl_has_attributes!(syn::PatType, #full);
+impl_has_attributes!(syn::PatWild, #full);
+impl_has_attributes!(syn::Receiver, #full);
 
+#[cfg(feature = "full")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
 impl HasAttributes for syn::TraitItem {
     fn attrs(&self) -> &[syn::Attribute] {
         match self {
@@ -483,10 +503,10 @@ impl HasAttributes for syn::TraitItem {
     }
 }
 
-impl_has_attributes!(syn::TraitItemConst);
-impl_has_attributes!(syn::TraitItemMacro);
-impl_has_attributes!(syn::TraitItemMethod);
-impl_has_attributes!(syn::TraitItemType);
+impl_has_attributes!(syn::TraitItemConst, #full);
+impl_has_attributes!(syn::TraitItemMacro, #full);
+impl_has_attributes!(syn::TraitItemMethod, #full);
+impl_has_attributes!(syn::TraitItemType, #full);
 impl_has_attributes!(syn::TypeParam);
 impl_has_attributes!(syn::Variadic);
 impl_has_attributes!(syn::Variant);
