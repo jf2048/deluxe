@@ -421,7 +421,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                                 input,
                                 span,
                                 &errors,
-                                |input, span| {
+                                |input, _, span| {
                                     let mut iter = fields.iter().filter(|f| f.is_parsable());
                                     if let Some(first) = iter.next() {
                                         if first.flatten.as_ref().map(|f| f.value).unwrap_or(false)
@@ -436,7 +436,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                                                 "`transparent` struct field cannot be `append`",
                                             ));
                                         } else if iter.next().is_none() {
-                                            return <_>::parse_meta_item_named(input, span);
+                                            return <_>::parse_meta_item_named(input, path, span);
                                         }
                                     }
                                     Err(syn::Error::new(
@@ -472,14 +472,15 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                         }
                         "crate" => crate_.parse_named_item("crate", input, span, &errors),
                         "and_then" => {
-                            match errors.push_result(<_>::parse_meta_item_named(input, span)) {
+                            match errors.push_result(<_>::parse_meta_item_named(input, path, span))
+                            {
                                 Some(e) => and_thens.push(e),
                                 None => parse_helpers::skip_meta_item(input),
                             }
                         }
                         "attributes" => {
                             match errors
-                                .push_result(mod_path_vec::parse_meta_item_named(input, span))
+                                .push_result(mod_path_vec::parse_meta_item_named(input, path, span))
                             {
                                 Some(attrs) => attributes.extend(attrs.into_iter()),
                                 None => parse_helpers::skip_meta_item(input),

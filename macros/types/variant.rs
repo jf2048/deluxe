@@ -84,7 +84,7 @@ impl<'v> Variant<'v> {
             return quote_mixed! {
                 #pre
                 if let #priv_::Option::Some(v) = errors.push_result(
-                    #crate_::ParseMetaItem::parse_meta_item_named(input, span).and_then(|v| {
+                    #crate_::ParseMetaItem::parse_meta_item_named(input, p, span).and_then(|v| {
                         #name = #priv_::FieldStatus::Some(v);
                         #post
                     })
@@ -527,7 +527,7 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                                 input,
                                 span,
                                 &errors,
-                                |input, span| {
+                                |input, _, span| {
                                     let mut iter = fields.iter().filter(|f| f.is_parsable());
                                     if let Some(first) = iter.next() {
                                         if first.flatten.as_ref().map(|f| f.value).unwrap_or(false)
@@ -542,7 +542,7 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                                                 "`transparent` variant field cannot be `append`",
                                             ));
                                         } else if iter.next().is_none() {
-                                            return <_>::parse_meta_item_named(input, span);
+                                            return <_>::parse_meta_item_named(input, path, span);
                                         }
                                     }
                                     Err(syn::Error::new(
@@ -575,8 +575,8 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                                 input,
                                 span,
                                 &errors,
-                                |input, span| {
-                                    let name = <_>::parse_meta_item_named(input, span)?;
+                                |input, _, span| {
+                                    let name = <_>::parse_meta_item_named(input, path, span)?;
                                     if variant.ident == name {
                                         Err(syn::Error::new(
                                             span,
@@ -595,7 +595,8 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                             );
                         }
                         "alias" => {
-                            match errors.push_result(<_>::parse_meta_item_named(input, span)) {
+                            match errors.push_result(<_>::parse_meta_item_named(input, path, span))
+                            {
                                 Some(alias) => {
                                     if variant.ident == alias {
                                         errors.push(span, "cannot alias variant to its own name");

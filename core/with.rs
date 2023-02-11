@@ -35,6 +35,7 @@ pub mod from_str {
     #[inline]
     pub fn parse_meta_item_named<T: FromStr>(
         input: ParseStream,
+        _name: &str,
         span: proc_macro2::Span,
     ) -> Result<T>
     where
@@ -81,6 +82,7 @@ pub mod from_str_default {
     }
     pub fn parse_meta_item_named<T: FromStr + Default>(
         input: ParseStream,
+        _name: &str,
         span: proc_macro2::Span,
     ) -> Result<T>
     where
@@ -121,7 +123,11 @@ pub mod mod_path {
         Err(crate::parse_helpers::flag_disallowed_error(span))
     }
     #[inline]
-    pub fn parse_meta_item_named(input: ParseStream, span: proc_macro2::Span) -> Result<syn::Path> {
+    pub fn parse_meta_item_named(
+        input: ParseStream,
+        _name: &str,
+        span: proc_macro2::Span,
+    ) -> Result<syn::Path> {
         crate::parse_named_meta_item_with!(input, span, self)
     }
     #[inline]
@@ -156,7 +162,11 @@ pub mod any_path {
         Err(crate::parse_helpers::flag_disallowed_error(span))
     }
     #[inline]
-    pub fn parse_meta_item_named(input: ParseStream, span: proc_macro2::Span) -> Result<syn::Path> {
+    pub fn parse_meta_item_named(
+        input: ParseStream,
+        _name: &str,
+        span: proc_macro2::Span,
+    ) -> Result<syn::Path> {
         crate::parse_named_meta_item_with!(input, span, self)
     }
     #[inline]
@@ -204,6 +214,7 @@ pub mod quoted {
     #[inline]
     pub fn parse_meta_item_named<T: ParseMetaItem>(
         input: ParseStream,
+        _name: &str,
         span: proc_macro2::Span,
     ) -> Result<T> {
         crate::parse_named_meta_item_with!(input, span, self)
@@ -247,6 +258,7 @@ pub mod maybe_quoted {
     #[inline]
     pub fn parse_meta_item_named<T: ParseMetaItem>(
         input: ParseStream,
+        _name: &str,
         span: proc_macro2::Span,
     ) -> Result<T> {
         crate::parse_named_meta_item_with!(input, span, self)
@@ -284,6 +296,7 @@ pub mod syn {
     #[inline]
     pub fn parse_meta_item_named<T: Parse>(
         input: ParseStream,
+        _name: &str,
         span: proc_macro2::Span,
     ) -> Result<T> {
         crate::parse_named_meta_item_with!(input, span, self)
@@ -329,6 +342,7 @@ pub mod syn_quoted {
     #[inline]
     pub fn parse_meta_item_named<T: Parse>(
         input: ParseStream,
+        _name: &str,
         span: proc_macro2::Span,
     ) -> Result<T> {
         crate::parse_named_meta_item_with!(input, span, self)
@@ -408,6 +422,7 @@ macro_rules! define_with_optional {
             #[inline]
             pub fn parse_meta_item_named(
                 input: $crate::syn::parse::ParseStream,
+                _name: &$crate::primitive::str,
                 span: $crate::Span,
             ) -> $crate::Result<$crate::Option<$ty>> {
                 $crate::parse_named_meta_item_with!(input, span, self)
@@ -504,6 +519,7 @@ macro_rules! define_with_collection {
             #[inline]
             pub fn parse_meta_item_named(
                 input: $crate::syn::parse::ParseStream,
+                _name: &$crate::primitive::str,
                 span: $crate::Span,
             ) -> $crate::Result<$($coll)? $(:: $colls)* <$ty>> {
                 $crate::parse_named_meta_item_with!(input, span, self)
@@ -682,6 +698,7 @@ macro_rules! define_with_map {
             #[inline]
             pub fn parse_meta_item_named(
                 input: $crate::syn::parse::ParseStream,
+                _name: &$crate::primitive::str,
                 span: $crate::Span,
             ) -> $crate::Result<$($coll)? $(:: $colls)* <$key, $val>> {
                 $crate::parse_named_meta_item_with!(input, span, self)
@@ -761,6 +778,7 @@ pub mod identity {
     #[inline]
     pub fn parse_meta_item_named<T: ParseMetaItem>(
         input: ParseStream,
+        _name: &str,
         span: proc_macro2::Span,
     ) -> Result<T> {
         crate::parse_named_meta_item_with!(input, span, self)

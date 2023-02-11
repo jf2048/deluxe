@@ -159,12 +159,12 @@ impl<T> FieldStatus<T> {
         errors: &Errors,
         func: F,
     ) where
-        F: FnOnce(ParseStream, Span) -> Result<T>,
+        F: FnOnce(ParseStream, &str, Span) -> Result<T>,
     {
         if !self.is_none() {
             errors.push(span, format_args!("duplicate attribute for `{name}`"));
         }
-        match errors.push_result(func(input, span)) {
+        match errors.push_result(func(input, name, span)) {
             Some(v) => {
                 if self.is_none() {
                     *self = FieldStatus::Some(v)

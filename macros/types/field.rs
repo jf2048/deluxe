@@ -444,11 +444,12 @@ impl<'f> Field<'f> {
                 Some(m) => {
                     let value_ident = syn::Ident::new("value", Span::mixed_site());
                     let input_ident = syn::Ident::new("input", Span::mixed_site());
+                    let p_ident = syn::Ident::new("p", Span::mixed_site());
                     let span_ident = syn::Ident::new("span", Span::mixed_site());
                     // bind the return to a variable to span a type conversion error properly
                     quote_spanned! { m.span() =>
                         {
-                            let #value_ident = #path::parse_meta_item_named(#input_ident, #span_ident);
+                            let #value_ident = #path::parse_meta_item_named(#input_ident, #p_ident, #span_ident);
                             #value_ident
                         }
                     }
@@ -456,7 +457,7 @@ impl<'f> Field<'f> {
                 None => {
                     let func = quote_spanned! { ty.span() => #path::parse_meta_item_named };
                     quote_mixed! {
-                        #func(input, span)
+                        #func(input, p, span)
                     }
                 }
             }
@@ -879,7 +880,7 @@ impl<'f> Field<'f> {
                     let call = f.to_parse_call_tokens(&inputs_expr, allowed_expr, crate_, priv_);
                     Some(quote_mixed! {
                         #(#priv_::Option::Some(#idents))|* => {
-                            #name.parse_named_item_with(#first_ident, input, span, &errors, |input, span| {
+                            #name.parse_named_item_with(#first_ident, input, span, &errors, |input, p, span| {
                                 #call
                             });
                         }
@@ -1100,8 +1101,8 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                                     input,
                                     span,
                                     &errors,
-                                    |input, span| {
-                                        let name = <_>::parse_meta_item_named(input, span)?;
+                                    |input, _, span| {
+                                        let name = <_>::parse_meta_item_named(input, path, span)?;
                                         if field.ident.as_ref() == Some(&name) {
                                             Err(syn::Error::new(
                                                 span,
@@ -1124,7 +1125,9 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                             if !named {
                                 errors.push(span, "`alias` not allowed on tuple struct field");
                             } else {
-                                match errors.push_result(<_>::parse_meta_item_named(input, span)) {
+                                match errors
+                                    .push_result(<_>::parse_meta_item_named(input, path, span))
+                                {
                                     Some(alias) => {
                                         if field.ident.as_ref() == Some(&alias) {
                                             errors.push(span, "cannot alias field to its own name");
@@ -1149,13 +1152,15 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                         }
                         "skip" => skip.parse_named_item("container", input, span, &errors),
                         "map" => {
-                            match errors.push_result(<_>::parse_meta_item_named(input, span)) {
+                            match errors.push_result(<_>::parse_meta_item_named(input, path, span))
+                            {
                                 Some(e) => transforms.push(Transform::Map(e)),
                                 None => parse_helpers::skip_meta_item(input),
                             }
                         }
                         "and_then" => {
-                            match errors.push_result(<_>::parse_meta_item_named(input, span)) {
+                            match errors.push_result(<_>::parse_meta_item_named(input, path, span))
+                            {
                                 Some(e) => transforms.push(Transform::AndThen(e)),
                                 None => parse_helpers::skip_meta_item(input),
                             }

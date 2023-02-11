@@ -318,8 +318,8 @@ impl<T: ParseMetaItem> ParseMetaItem for SpannedValue<T> {
         })
     }
     #[inline]
-    fn parse_meta_item_named(input: ParseStream, span: Span) -> Result<Self> {
-        let value = T::parse_meta_item_named(input, span)?;
+    fn parse_meta_item_named(input: ParseStream, name: &str, span: Span) -> Result<Self> {
+        let value = T::parse_meta_item_named(input, name, span)?;
         let span = input.span().join(span).unwrap_or(span);
         Ok(Self { value, span })
     }
@@ -520,7 +520,7 @@ impl ParseMetaItem for Flag {
         Ok(Self(Some(span)))
     }
     #[inline]
-    fn parse_meta_item_named(input: ParseStream, span: Span) -> Result<Self> {
+    fn parse_meta_item_named(input: ParseStream, _name: &str, span: Span) -> Result<Self> {
         if input.is_empty() || input.peek(syn::Token![,]) {
             Self::parse_meta_item_flag(span)
         } else {

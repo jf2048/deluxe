@@ -125,7 +125,7 @@ pub trait ParseMetaItem: Sized {
     /// The default implementation simply calls
     /// [`parse_helpers::parse_named_meta_item`](crate::parse_helpers::parse_named_meta_item).
     #[inline]
-    fn parse_meta_item_named(input: ParseStream, span: Span) -> Result<Self> {
+    fn parse_meta_item_named(input: ParseStream, _name: &str, span: Span) -> Result<Self> {
         parse_named_meta_item(input, span)
     }
     /// Fallback for when a required item is missing.
@@ -542,7 +542,7 @@ macro_rules! impl_parse_meta_item_collection {
                 let paths = paths.into_iter();
                 parse_struct(inputs, |input, p, pspan| {
                     if paths.clone().any(|path| path.as_ref() == p) {
-                        let $item = <_>::parse_meta_item_named(input, pspan)?;
+                        let $item = <_>::parse_meta_item_named(input, p, pspan)?;
                         $push;
                     } else {
                         skip_meta_item(input);
@@ -634,7 +634,7 @@ macro_rules! impl_parse_meta_item_set {
                 parse_struct(inputs, |input, p, pspan| {
                     if paths.clone().any(|path| path.as_ref() == p) {
                         let span = input.span();
-                        let $item = <_>::parse_meta_item_named(input, pspan)?;
+                        let $item = <_>::parse_meta_item_named(input, p, pspan)?;
                         let span = input.span().join(span).unwrap();
                         if !$push {
                             errors.push(span, "Duplicate key");
@@ -709,8 +709,9 @@ macro_rules! impl_parse_meta_item_map {
                         }
                         let start = input.span();
                         let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
+                        let ks = $key.to_key_string();
                         let span = input.span().join(start).unwrap();
-                        let $value = <_>::parse_meta_item_named(input, start)?;
+                        let $value = <_>::parse_meta_item_named(input, &ks, start)?;
                         if !$push {
                             errors.push(span, "Duplicate key");
                         }
@@ -743,11 +744,12 @@ macro_rules! impl_parse_meta_item_map {
                         }
                         let start = input.span();
                         let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
-                        if exclude.contains(&path_to_string($key.borrow()).as_str()) {
+                        let ks = $key.to_key_string();
+                        if exclude.contains(&&*ks) {
                             skip_meta_item(input);
                         } else {
                             let span = input.span().join(start).unwrap();
-                            let $value = <_>::parse_meta_item_named(input, start)?;
+                            let $value = <_>::parse_meta_item_named(input, &ks, start)?;
                             if !$push {
                                 errors.push(span, "Duplicate key");
                             }
