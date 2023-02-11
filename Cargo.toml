@@ -13,7 +13,7 @@ include = ["/src", "/tests", "/README.md", "/COPYING"]
 
 [features]
 default = ["proc-macro"]
-proc-macro = ["syn/proc-macro"]
+proc-macro = ["deluxe-core/proc-macro", "syn/proc-macro"]
 
 [dependencies]
 once_cell = "1.13.0"

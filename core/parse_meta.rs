@@ -980,6 +980,113 @@ impl ParseMetaItem for proc_macro2::Group {
     }
 }
 
+#[cfg(feature = "proc-macro")]
+#[inline]
+fn convert_token_tree(tt: proc_macro2::TokenTree) -> syn::Result<proc_macro::TokenTree> {
+    #[inline]
+    fn convert_delimiter(d: proc_macro2::Delimiter) -> proc_macro::Delimiter {
+        match d {
+            proc_macro2::Delimiter::Parenthesis => proc_macro::Delimiter::Parenthesis,
+            proc_macro2::Delimiter::Brace => proc_macro::Delimiter::Brace,
+            proc_macro2::Delimiter::Bracket => proc_macro::Delimiter::Bracket,
+            proc_macro2::Delimiter::None => proc_macro::Delimiter::None,
+        }
+    }
+    #[inline]
+    fn convert_spacing(s: proc_macro2::Spacing) -> proc_macro::Spacing {
+        match s {
+            proc_macro2::Spacing::Alone => proc_macro::Spacing::Alone,
+            proc_macro2::Spacing::Joint => proc_macro::Spacing::Joint,
+        }
+    }
+    Ok(match tt {
+        proc_macro2::TokenTree::Group(g) => {
+            proc_macro::Group::new(convert_delimiter(g.delimiter()), g.stream().into()).into()
+        }
+        proc_macro2::TokenTree::Ident(i) => {
+            proc_macro::Ident::new(&i.to_string(), i.span().unwrap()).into()
+        }
+        proc_macro2::TokenTree::Punct(p) => {
+            proc_macro::Punct::new(p.as_char(), convert_spacing(p.spacing())).into()
+        }
+        proc_macro2::TokenTree::Literal(l) => l
+            .to_string()
+            .parse::<proc_macro::Literal>()
+            .map(|mut pl| {
+                pl.set_span(l.span().unwrap());
+                pl
+            })
+            .map_err(|e| syn::Error::new(l.span(), e))?
+            .into(),
+    })
+}
+
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+impl ParseMetaItem for proc_macro::TokenTree {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        convert_token_tree(input.parse::<proc_macro2::TokenTree>()?)
+    }
+}
+
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+impl ParseMetaItem for proc_macro::TokenStream {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        Ok(input.parse::<proc_macro2::TokenStream>()?.into())
+    }
+}
+
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+impl ParseMetaItem for proc_macro::Literal {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        match convert_token_tree(proc_macro2::TokenTree::Literal(input.parse()?))? {
+            proc_macro::TokenTree::Literal(l) => Ok(l),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+impl ParseMetaItem for proc_macro::Punct {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        match convert_token_tree(proc_macro2::TokenTree::Punct(input.parse()?))? {
+            proc_macro::TokenTree::Punct(p) => Ok(p),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+impl ParseMetaItem for proc_macro::Group {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        match convert_token_tree(proc_macro2::TokenTree::Group(input.parse()?))? {
+            proc_macro::TokenTree::Group(g) => Ok(g),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+impl ParseMetaItem for proc_macro::Ident {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        match convert_token_tree(proc_macro2::TokenTree::Ident(input.parse()?))? {
+            proc_macro::TokenTree::Ident(i) => Ok(i),
+            _ => unreachable!(),
+        }
+    }
+}
+
 impl<T: ParseMetaItem, P: Parse + Default> ParseMetaItem for Punctuated<T, P> {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {

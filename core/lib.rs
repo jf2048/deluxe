@@ -15,6 +15,9 @@
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
 
+#[cfg(feature = "proc-macro")]
+extern crate proc_macro;
+
 mod parse_attributes;
 pub mod parse_helpers;
 mod parse_meta;
