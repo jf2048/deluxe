@@ -889,22 +889,36 @@ macro_rules! impl_to_key_string_display {
 
 impl_to_key_string_display!(proc_macro2::TokenTree);
 
-/// Consumes all remaining tokens.
+/// Consumes up to the next comma or the end of the stream. Returns an error if the stream is
+/// empty or the first token is a comma.
 impl ParseMetaItem for proc_macro2::TokenStream {
     #[inline]
-    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+    fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
+        if input.peek(Token![,]) {
+            return Err(syn::Error::new(input.span(), "unexpected comma"));
+        }
         input.step(|cursor| {
             let mut cursor = *cursor;
             let mut tts = Vec::new();
             while let Some((tt, rest)) = cursor.token_tree() {
-                tts.push(tt);
+                match tt {
+                    proc_macro2::TokenTree::Punct(p) if p.as_char() == ',' => break,
+                    tt => tts.push(tt),
+                }
                 cursor = rest;
+            }
+            if tts.is_empty() {
+                return Err(syn::Error::new(mode.to_span(input), "expected token"));
             }
             Ok((tts.into_iter().collect(), cursor))
         })
     }
     #[inline]
     fn parse_meta_item_flag(_: Span) -> Result<Self> {
+        Ok(Default::default())
+    }
+    #[inline]
+    fn missing_meta_item(_name: &str, _span: Span) -> Result<Self> {
         Ok(Default::default())
     }
 }
