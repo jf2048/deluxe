@@ -618,6 +618,7 @@ pub use deluxe_core::{
 #[doc(hidden)]
 pub use deluxe_core::{
     ContainerFrom, ParseMetaAppend, ParseMetaFlatNamed, ParseMetaFlatUnnamed, ParseMetaRest,
+    ToKeyString,
 };
 pub use deluxe_macros::*;
 

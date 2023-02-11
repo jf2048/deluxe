@@ -2,6 +2,7 @@
 
 use crate::{Error, Errors, ParseMetaItem, ParseMode, Result};
 use proc_macro2::{Span, TokenStream, TokenTree};
+use quote::ToTokens;
 use std::{
     borrow::{Borrow, Cow},
     collections::HashMap,
@@ -718,7 +719,7 @@ where
 
 /// Converts a [`syn::Path`] to a `String`.
 ///
-/// Any generic arguments on segments in `path` are ignored.
+/// Attempts to format the path in a readable way.
 pub fn path_to_string(path: &syn::Path) -> String {
     let mut s = String::new();
     for seg in &path.segments {
@@ -726,6 +727,9 @@ pub fn path_to_string(path: &syn::Path) -> String {
             s.push_str("::");
         }
         s.push_str(&seg.ident.to_string());
+        if !seg.arguments.is_empty() {
+            s.push_str(&seg.arguments.to_token_stream().to_string());
+        }
     }
     s
 }

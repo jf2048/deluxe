@@ -608,10 +608,10 @@ macro_rules! define_with_map {
                     self.0.hash(state)
                 }
             }
-            impl $crate::Borrow<$crate::syn::Path> for InnerKey where $key: $crate::Borrow<$crate::syn::Path>  {
+            impl $crate::ToKeyString for InnerKey where $key: $crate::ToKeyString {
                 #[inline]
-                fn borrow(&self) -> &$crate::syn::Path {
-                    &self.0
+                fn to_key_string(&self) -> $crate::Cow<$crate::primitive::str> {
+                    self.0.to_key_string()
                 }
             }
 

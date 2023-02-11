@@ -33,7 +33,7 @@ pub use syn;
 #[doc(hidden)]
 pub use {
     std::{
-        borrow::Borrow,
+        borrow::{Borrow, Cow},
         collections::HashMap,
         hash::{Hash, Hasher},
         primitive,
