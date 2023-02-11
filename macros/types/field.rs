@@ -12,11 +12,11 @@ use syn::{
 
 pub enum FieldDefault {
     Default(Span),
-    Expr(Box<syn::Expr>),
+    Expr(TokenStream),
 }
 
 impl FieldDefault {
-    pub fn to_expr(&self, ty: Option<&syn::Type>, priv_: &syn::Path) -> Cow<syn::Expr> {
+    pub fn to_expr(&self, ty: Option<&syn::Type>, priv_: &syn::Path) -> Cow<TokenStream> {
         match self {
             FieldDefault::Default(span) => {
                 let ty = if let Some(ty) = ty {
@@ -24,7 +24,7 @@ impl FieldDefault {
                 } else {
                     quote_spanned! { *span => _ }
                 };
-                Cow::Owned(syn::parse_quote_spanned! { *span =>
+                Cow::Owned(quote_spanned! { *span =>
                     <#ty as #priv_::Default>::default()
                 })
             }
@@ -199,8 +199,8 @@ impl ParseMetaItem for FieldContainer {
 }
 
 pub enum Transform {
-    Map(syn::Expr),
-    AndThen(syn::Expr),
+    Map(TokenStream),
+    AndThen(TokenStream),
 }
 
 pub struct Field<'f> {
@@ -232,14 +232,14 @@ pub enum TokenMode {
 
 pub enum ParseTarget<'t> {
     Init(Option<&'t syn::Ident>),
-    Var(&'t syn::Expr),
+    Var(&'t TokenStream),
 }
 
 pub(super) struct FieldData<'t, 'i, 'a> {
     pub mode: TokenMode,
     pub target: ParseTarget<'t>,
-    pub inline_expr: &'i syn::Expr,
-    pub allowed_expr: &'a syn::Expr,
+    pub inline_expr: &'i TokenStream,
+    pub allowed_expr: &'a TokenStream,
     pub transparent: bool,
     pub variant: bool,
     pub allow_unknown_fields: bool,
@@ -387,7 +387,7 @@ impl<'f> Field<'f> {
     fn to_parse_call_tokens(
         &self,
         inputs_expr: &TokenStream,
-        allowed_expr: &syn::Expr,
+        allowed_expr: &TokenStream,
         crate_: &syn::Path,
         priv_: &syn::Path,
     ) -> TokenStream {
@@ -660,7 +660,7 @@ impl<'f> Field<'f> {
                 };
                 match t {
                     Transform::Map(expr) => quote_mixed! {
-                        let #name: #priv_::FieldStatus<#constraint> = #name.map(#expr);
+                        let #name: #priv_::FieldStatus<#constraint> = #name.map((#expr));
                     },
                     Transform::AndThen(expr) => quote_mixed! {
                         let #name: #priv_::FieldStatus<#constraint> = #name.and_then(|v| {
@@ -675,7 +675,7 @@ impl<'f> Field<'f> {
             let set_default = f.default.as_ref().map(|def| {
                 let expr = def.to_expr(f.transforms.is_empty().then_some(ty), priv_);
                 quote_mixed! {
-                    let #name = #name.or_else(|| #priv_::FieldStatus::Some(#expr));
+                    let #name = #name.or_else(|| #priv_::FieldStatus::Some((#expr)));
                 }
             });
             quote_mixed! {

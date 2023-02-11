@@ -14,7 +14,7 @@ pub struct Enum<'e> {
     pub default: Option<FieldDefault>,
     pub crate_: Option<syn::Path>,
     pub attributes: Vec<syn::Path>,
-    pub and_thens: Vec<syn::Expr>,
+    pub and_thens: Vec<TokenStream>,
     pub allow_unknown_fields: Option<bool>,
 }
 

@@ -109,7 +109,7 @@ pub struct Struct<'s> {
     pub transparent: Option<StructTransparent>,
     pub allow_unknown_fields: Option<bool>,
     pub attributes: Vec<syn::Path>,
-    pub and_thens: Vec<syn::Expr>,
+    pub and_thens: Vec<TokenStream>,
 }
 
 impl<'s> Struct<'s> {
@@ -151,12 +151,12 @@ impl<'s> Struct<'s> {
         orig: &syn::DeriveInput,
         crate_: &syn::Path,
         mode: TokenMode,
-        inline_expr: &syn::Expr,
-        allowed_expr: &syn::Expr,
+        inline_expr: &TokenStream,
+        allowed_expr: &TokenStream,
     ) -> ItemDef {
         let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
         let priv_ = &priv_path;
-        let target = self.default.as_ref().map(|_| parse_quote_mixed! { target });
+        let target = self.default.as_ref().map(|_| quote_mixed! { target });
         let target = target
             .as_ref()
             .map(ParseTarget::Var)
@@ -199,7 +199,7 @@ impl<'s> Struct<'s> {
         let default_set = self.default.as_ref().map(|d| {
             let expr = d.to_expr(Some(&syn::parse_quote_spanned! { d.span() => Self }), priv_);
             quote_mixed! {
-                let mut target: Self = #expr;
+                let mut target: Self = (#expr);
             }
         });
         if transparent {

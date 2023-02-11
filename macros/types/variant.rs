@@ -256,8 +256,8 @@ impl<'v> Variant<'v> {
         variants: &[Self],
         crate_: &syn::Path,
         mode: TokenMode,
-        target: Option<&syn::Expr>,
-        and_thens: &[syn::Expr],
+        target: Option<&TokenStream>,
+        and_thens: &[TokenStream],
         allow_unknown_fields: bool,
     ) -> TokenStream {
         let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
@@ -390,7 +390,7 @@ impl<'v> Variant<'v> {
             if let Some(target) = target {
                 return quote_mixed! {
                     {
-                        value = #priv_::FieldStatus::Some(#target);
+                        value = #priv_::FieldStatus::Some((#target));
                     }
                 };
             }
