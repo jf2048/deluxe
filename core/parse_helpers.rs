@@ -1,8 +1,8 @@
 //! Utility functions for parse trait implementations.
 
-use crate::{Error, Errors, ParseMetaItem, ParseMode, Result};
+pub use crate::small_string::SmallString;
+use crate::{Error, Errors, ParseMetaItem, ParseMode, Result, ToKeyString};
 use proc_macro2::{Span, TokenStream, TokenTree};
-use quote::ToTokens;
 use std::{
     borrow::{Borrow, Cow},
     collections::HashMap,
@@ -589,7 +589,7 @@ where
                 break;
             }
             let path = input.call(parse_any_path)?;
-            func(input, path_to_string(&path).as_str(), path.span())?;
+            func(input, key_to_string(&path).as_str(), path.span())?;
             if !input.is_empty() {
                 input.parse::<Token![,]>()?;
             }
@@ -683,19 +683,19 @@ fn parse_tokens<T, F: FnOnce(ParseStream) -> Result<T>>(input: TokenStream, func
 pub fn parse_struct_attr_tokens<T, I, F, R>(inputs: I, func: F) -> Result<R>
 where
     T: quote::ToTokens,
-    I: IntoIterator<Item = (T, String, Span)>,
-    F: FnOnce(&[ParseBuffer], &[(String, Span)]) -> Result<R>,
+    I: IntoIterator<Item = (T, SmallString<'static>, Span)>,
+    F: FnOnce(&[ParseBuffer], &[(SmallString<'static>, Span)]) -> Result<R>,
 {
     fn parse_next<T, I, F, R>(
         mut iter: I,
         buffers: Vec<ParseBuffer>,
-        mut paths: Vec<(String, Span)>,
+        mut paths: Vec<(SmallString<'static>, Span)>,
         func: F,
     ) -> Result<R>
     where
         T: quote::ToTokens,
-        I: Iterator<Item = (T, String, Span)>,
-        F: FnOnce(&[ParseBuffer], &[(String, Span)]) -> Result<R>,
+        I: Iterator<Item = (T, SmallString<'static>, Span)>,
+        F: FnOnce(&[ParseBuffer], &[(SmallString<'static>, Span)]) -> Result<R>,
     {
         if let Some((tokens, name, span)) = iter.next() {
             let tokens = tokens.into_token_stream();
@@ -717,21 +717,20 @@ where
     parse_next(inputs.into_iter(), Vec::new(), Vec::new(), func)
 }
 
-/// Converts a [`syn::Path`] to a `String`.
-///
-/// Attempts to format the path in a readable way.
-pub fn path_to_string(path: &syn::Path) -> String {
-    let mut s = String::new();
-    for seg in &path.segments {
-        if !s.is_empty() {
-            s.push_str("::");
-        }
-        s.push_str(&seg.ident.to_string());
-        if !seg.arguments.is_empty() {
-            s.push_str(&seg.arguments.to_token_stream().to_string());
+/// Converts a [`ToKeyString`] to a [`SmallString`].
+pub fn key_to_string<T: ToKeyString>(t: &T) -> SmallString<'static> {
+    struct FormatKey<'a, A>(&'a A);
+
+    impl<'a, A: ToKeyString> std::fmt::Display for FormatKey<'a, A> {
+        #[inline]
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            self.0.fmt_key_string(f)
         }
     }
-    s
+
+    let mut ss = SmallString::new();
+    std::fmt::write(&mut ss, format_args!("{}", FormatKey(t))).unwrap();
+    ss
 }
 
 /// Concatenates two path strings.
@@ -753,7 +752,7 @@ pub fn join_path<'path>(prefix: &str, path: &'path str) -> Cow<'path, str> {
 ///
 /// Similar to [`join_path`], but all returned strings will have `::` appended to the end of them.
 /// The returned string will be suitable to pass to [`str::strip_prefix`] after calling
-/// [`path_to_string`].
+/// [`key_to_string`].
 #[inline]
 pub fn join_prefix(prefix: &str, path: &str) -> String {
     if prefix.is_empty() {
@@ -808,7 +807,7 @@ pub fn path_matches(path: &syn::Path, segs: &[&str]) -> bool {
 /// A key is a list of names that could be used for a field. Returns `true` if each key has at
 /// least one name present in `paths`.
 #[inline]
-pub fn has_paths(paths: &HashMap<String, Span>, keys: &[&[&str]]) -> bool {
+pub fn has_paths(paths: &HashMap<SmallString<'static>, Span>, keys: &[&[&str]]) -> bool {
     keys.iter()
         .all(|ks| ks.iter().any(|i| paths.contains_key(*i)))
 }
@@ -817,7 +816,7 @@ pub fn has_paths(paths: &HashMap<String, Span>, keys: &[&[&str]]) -> bool {
 ///
 /// `keys` is an array of `(prefix, keys)` tuples. The prefix will be be prepended to the key and
 /// then the resulting string will be removed from `paths`.
-pub fn remove_paths(paths: &mut HashMap<String, Span>, keys: &[(&str, &[&str])]) {
+pub fn remove_paths(paths: &mut HashMap<SmallString<'static>, Span>, keys: &[(&str, &[&str])]) {
     for (prefix, ks) in keys {
         for path in *ks {
             let path = join_path(prefix, path);
@@ -832,7 +831,7 @@ pub fn remove_paths(paths: &mut HashMap<String, Span>, keys: &[(&str, &[&str])])
 /// then checked against `paths`. For every key found, a "disallowed" error will be appended to
 /// `errors`.
 pub fn disallow_paths(
-    paths: &HashMap<String, Span>,
+    paths: &HashMap<SmallString<'static>, Span>,
     keys: &[(&str, &[&str])],
     cur: &str,
     errors: &Errors,
@@ -928,13 +927,15 @@ pub fn check_unknown_attribute(path: &str, span: Span, fields: &[&str], errors: 
 /// corresponding path [`Span`](proc_macro2::Span) from a matched
 /// [`ParseAttributes`](crate::ParseAttributes).
 #[inline]
-pub fn ref_tokens<'t, P, T>(input: &'t T) -> impl Iterator<Item = (&TokenStream, String, Span)>
+pub fn ref_tokens<'t, P, T>(
+    input: &'t T,
+) -> impl Iterator<Item = (&TokenStream, SmallString<'static>, Span)>
 where
     P: crate::ParseAttributes<'t, T>,
     T: crate::HasAttributes,
 {
     T::attrs(input).iter().filter_map(|a| {
-        P::path_matches(&a.path).then(|| (&a.tokens, path_to_string(&a.path), a.path.span()))
+        P::path_matches(&a.path).then(|| (&a.tokens, key_to_string(&a.path), a.path.span()))
     })
 }
 
@@ -944,7 +945,9 @@ where
 /// All matching attributes will be removed from `input`. The resulting
 /// [`TokenStream`](proc_macro2::TokenStream)s are moved into the iterator.
 #[inline]
-pub fn take_tokens<E, T>(input: &mut T) -> Result<impl Iterator<Item = (TokenStream, String, Span)>>
+pub fn take_tokens<E, T>(
+    input: &mut T,
+) -> Result<impl Iterator<Item = (TokenStream, SmallString<'static>, Span)>>
 where
     E: crate::ExtractAttributes<T>,
     T: crate::HasAttributes,
@@ -955,7 +958,7 @@ where
     while index < attrs.len() {
         if E::path_matches(&attrs[index].path) {
             let attr = attrs.remove(index);
-            tokens.push((attr.tokens, path_to_string(&attr.path), attr.path.span()));
+            tokens.push((attr.tokens, key_to_string(&attr.path), attr.path.span()));
         } else {
             index += 1;
         }
@@ -967,7 +970,7 @@ where
 ///
 /// Returns [`Span::call_site`](proc_macro2::Span::call_site) if the slice is empty.
 #[inline]
-pub fn first_span(spans: &[(String, Span)]) -> Span {
+pub fn first_span(spans: &[(SmallString<'static>, Span)]) -> Span {
     spans.first().map(|s| s.1).unwrap_or_else(Span::call_site)
 }
 
@@ -975,7 +978,7 @@ pub fn first_span(spans: &[(String, Span)]) -> Span {
 ///
 /// Returns [`None`] if the slice is empty.
 #[inline]
-pub fn first_path_name(spans: &[(String, Span)]) -> Option<&str> {
+pub fn first_path_name<'a>(spans: &'a [(SmallString<'static>, Span)]) -> Option<&'a str> {
     spans.first().map(|s| s.0.as_str())
 }
 

@@ -2,8 +2,9 @@ use crate::{parse_helpers::*, Errors, Result};
 use proc_macro2::Span;
 use quote::ToTokens;
 use std::{
-    borrow::{Borrow, Cow},
+    borrow::Borrow,
     collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, LinkedList, VecDeque},
+    fmt::{self, Write},
     hash::Hash,
 };
 use syn::{
@@ -251,9 +252,16 @@ pub trait ParseMetaRest: Sized {
 /// Used for performing path comparisons and for constructing error messages when using arbitrary
 /// types as attribute keys. Currently only used by the [`ParseMetaItem`] implementations for
 /// [`BTreeMap`] and [`HashMap`].
-pub trait ToKeyString {
-    /// Converts the given value to a key string.
-    fn to_key_string(&self) -> Cow<str>;
+pub trait ToKeyString: Sized {
+    /// Formats the given value as a key string.
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result;
+    /// Runs function `f` with the key converted to a `&str`.
+    ///
+    /// Can be specialized by values that can pass a cheaply borrowed `&str`. The default
+    /// implementation calls `f` with the result from [`key_to_string`].
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        f(&key_to_string(self))
+    }
 }
 
 macro_rules! impl_parse_meta_item_primitive {
@@ -266,8 +274,8 @@ macro_rules! impl_parse_meta_item_primitive {
         }
         impl ToKeyString for $ty {
             #[inline]
-            fn to_key_string(&self) -> Cow<str> {
-                Cow::Owned(self.to_string())
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                fmt::Display::fmt(self, f)
             }
         }
     };
@@ -343,13 +351,17 @@ impl ParseMetaItem for String {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
         Ok(input.parse::<syn::LitStr>()?.value())
-        //Ok(Self::from($input.parse::<$lit>()?.value()))
     }
 }
+
 impl ToKeyString for String {
     #[inline]
-    fn to_key_string(&self) -> Cow<str> {
-        Cow::Borrowed(self.as_str())
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        f(self)
     }
 }
 
@@ -362,8 +374,12 @@ impl ParseMetaItem for std::path::PathBuf {
 
 impl ToKeyString for std::path::PathBuf {
     #[inline]
-    fn to_key_string(&self) -> Cow<str> {
-        self.to_string_lossy()
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(&self.to_string_lossy())
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        f(&self.to_string_lossy())
     }
 }
 
@@ -376,8 +392,12 @@ impl ParseMetaItem for std::ffi::OsString {
 
 impl ToKeyString for std::ffi::OsString {
     #[inline]
-    fn to_key_string(&self) -> Cow<str> {
-        self.to_string_lossy()
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(&self.to_string_lossy())
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        f(&self.to_string_lossy())
     }
 }
 
@@ -423,10 +443,14 @@ impl<T: ParseMetaItem> ParseMetaItem for Option<T> {
 
 impl<T: ToKeyString> ToKeyString for Option<T> {
     #[inline]
-    fn to_key_string(&self) -> Cow<str> {
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Some(v) => Cow::Owned(format!("Some({})", v.to_key_string())),
-            None => Cow::Borrowed("None"),
+            Some(v) => {
+                f.write_str("Some(")?;
+                v.fmt_key_string(f)?;
+                f.write_char(')')
+            }
+            None => f.write_str("None"),
         }
     }
 }
@@ -475,16 +499,15 @@ impl<T: ParseMetaItem, const N: usize> ParseMetaFlatUnnamed for [T; N] {
 }
 
 impl<T: ToKeyString, const N: usize> ToKeyString for [T; N] {
-    fn to_key_string(&self) -> Cow<str> {
-        let mut s = String::from("[");
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_char('[')?;
         for (i, v) in self.iter().enumerate() {
             if i > 0 {
-                s.push_str(", ");
+                f.write_str(", ")?;
             }
-            s.push_str(&v.to_key_string());
+            v.fmt_key_string(f)?;
         }
-        s.push(']');
-        Cow::Owned(s)
+        f.write_char(']')
     }
 }
 
@@ -555,16 +578,15 @@ macro_rules! impl_parse_meta_item_collection {
         }
 
         impl<$param: ToKeyString $(+ $bound $(+ $bounds)*)?> ToKeyString for $ty <$param> {
-            fn to_key_string(&self) -> Cow<str> {
-                let mut s = String::from("[");
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_char('[')?;
                 for (i, v) in self.iter().enumerate() {
                     if i > 0 {
-                        s.push_str(", ");
+                        f.write_str(", ")?;
                     }
-                    s.push_str(&v.to_key_string());
+                    v.fmt_key_string(f)?;
                 }
-                s.push(']');
-                Cow::Owned(s)
+                f.write_char(']')
             }
         }
     };
@@ -650,16 +672,15 @@ macro_rules! impl_parse_meta_item_set {
         }
 
         impl<$param: ToKeyString $(+ $bound $(+ $bounds)*)?> ToKeyString for $ty <$param> {
-            fn to_key_string(&self) -> Cow<str> {
-                let mut s = String::from("[");
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_char('[')?;
                 for (i, v) in self.iter().enumerate() {
                     if i > 0 {
-                        s.push_str(", ");
+                        f.write_str(", ")?;
                     }
-                    s.push_str(&v.to_key_string());
+                    v.fmt_key_string(f)?;
                 }
-                s.push(']');
-                Cow::Owned(s)
+                f.write_char(']')
             }
         }
     };
@@ -709,9 +730,10 @@ macro_rules! impl_parse_meta_item_map {
                         }
                         let start = input.span();
                         let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
-                        let ks = $key.to_key_string();
                         let span = input.span().join(start).unwrap();
-                        let $value = <_>::parse_meta_item_named(input, &ks, start)?;
+                        let $value = $key.with_key_string(|ks| {
+                            <_>::parse_meta_item_named(input, &ks, start)
+                        })?;
                         if !$push {
                             errors.push(span, "Duplicate key");
                         }
@@ -744,12 +766,16 @@ macro_rules! impl_parse_meta_item_map {
                         }
                         let start = input.span();
                         let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
-                        let ks = $key.to_key_string();
-                        if exclude.contains(&&*ks) {
-                            skip_meta_item(input);
-                        } else {
-                            let span = input.span().join(start).unwrap();
-                            let $value = <_>::parse_meta_item_named(input, &ks, start)?;
+                        let span = input.span().join(start).unwrap();
+                        let $value = $key.with_key_string(|ks| {
+                            if exclude.contains(&ks) {
+                                skip_meta_item(input);
+                                Ok::<_, crate::Error>(None)
+                            } else {
+                                Ok(Some(<_>::parse_meta_item_named(input, &ks, start)?))
+                            }
+                        })?;
+                        if let Some($value) = $value {
                             if !$push {
                                 errors.push(span, "Duplicate key");
                             }
@@ -769,18 +795,17 @@ macro_rules! impl_parse_meta_item_map {
             $kp: ToKeyString $(+ $kbound $(+ $kbounds)*)?,
             $vp: ToKeyString,
         {
-            fn to_key_string(&self) -> Cow<str> {
-                let mut s = String::from("{");
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_char('{')?;
                 for (i, (k, v)) in self.iter().enumerate() {
                     if i > 0 {
-                        s.push_str(", ");
+                        f.write_str(", ")?;
                     }
-                    s.push_str(&k.to_key_string());
-                    s.push_str(" = ");
-                    s.push_str(&v.to_key_string());
+                    k.fmt_key_string(f)?;
+                    f.write_str(" = ")?;
+                    v.fmt_key_string(f)?;
                 }
-                s.push('}');
-                Cow::Owned(s)
+                f.write_char('}')
             }
         }
     };
@@ -811,31 +836,53 @@ macro_rules! impl_parse_meta_item_wrapper {
 }
 
 impl_parse_meta_item_wrapper!(Box<T>);
+
 impl<T: ToKeyString> ToKeyString for Box<T> {
     #[inline]
-    fn to_key_string(&self) -> Cow<str> {
-        (**self).to_key_string()
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (**self).fmt_key_string(f)
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        (**self).with_key_string(f)
     }
 }
+
 impl_parse_meta_item_wrapper!(std::rc::Rc<T>);
+
 impl<T: ToKeyString> ToKeyString for std::rc::Rc<T> {
     #[inline]
-    fn to_key_string(&self) -> Cow<str> {
-        (**self).to_key_string()
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (**self).fmt_key_string(f)
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        (**self).with_key_string(f)
     }
 }
 impl_parse_meta_item_wrapper!(std::cell::Cell<T>);
+
 impl<T: ToKeyString + Copy> ToKeyString for std::cell::Cell<T> {
     #[inline]
-    fn to_key_string(&self) -> Cow<str> {
-        Cow::Owned(self.get().to_key_string().into_owned())
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.get().fmt_key_string(f)
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        self.get().with_key_string(f)
     }
 }
+
 impl_parse_meta_item_wrapper!(std::cell::RefCell<T>);
+
 impl<T: ToKeyString> ToKeyString for std::cell::RefCell<T> {
     #[inline]
-    fn to_key_string(&self) -> Cow<str> {
-        Cow::Owned(self.borrow().to_key_string().into_owned())
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.borrow().fmt_key_string(f)
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        self.borrow().with_key_string(f)
     }
 }
 
@@ -852,8 +899,12 @@ impl<'t, T: ParseMetaItem + Clone> ParseMetaItem for std::borrow::Cow<'t, T> {
 
 impl<'t, T: ToKeyString + Clone> ToKeyString for std::borrow::Cow<'t, T> {
     #[inline]
-    fn to_key_string(&self) -> Cow<str> {
-        (**self).to_key_string()
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (**self).fmt_key_string(f)
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        (**self).with_key_string(f)
     }
 }
 
@@ -868,18 +919,18 @@ impl ParseMetaItem for proc_macro2::TokenTree {
     }
 }
 
-macro_rules! impl_to_key_string_display {
+macro_rules! impl_fmt_key_string_display {
     ($(#[$attr:meta])* $ty:ty) => {
         $(#[$attr])*
         impl ToKeyString for $ty {
             #[inline]
-            fn to_key_string(&self) -> Cow<str> {
-                Cow::Owned(self.to_string())
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                fmt::Display::fmt(self, f)
             }
         }
     };
     ($ty:ty, #proc_macro) => {
-        impl_to_key_string_display!(
+        impl_fmt_key_string_display!(
             #[cfg(feature = "proc-macro")]
             #[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
             $ty
@@ -887,7 +938,7 @@ macro_rules! impl_to_key_string_display {
     };
 }
 
-impl_to_key_string_display!(proc_macro2::TokenTree);
+impl_fmt_key_string_display!(proc_macro2::TokenTree);
 
 /// Consumes up to the next comma or the end of the stream. Returns an error if the stream is
 /// empty or the first token is a comma.
@@ -947,7 +998,7 @@ impl ParseMetaFlatUnnamed for proc_macro2::TokenStream {
     }
 }
 
-impl_to_key_string_display!(proc_macro2::TokenStream);
+impl_fmt_key_string_display!(proc_macro2::TokenStream);
 
 impl ParseMetaItem for proc_macro2::Literal {
     #[inline]
@@ -960,7 +1011,7 @@ impl ParseMetaItem for proc_macro2::Literal {
     }
 }
 
-impl_to_key_string_display!(proc_macro2::Literal);
+impl_fmt_key_string_display!(proc_macro2::Literal);
 
 impl ParseMetaItem for proc_macro2::Punct {
     #[inline]
@@ -973,7 +1024,7 @@ impl ParseMetaItem for proc_macro2::Punct {
     }
 }
 
-impl_to_key_string_display!(proc_macro2::Punct);
+impl_fmt_key_string_display!(proc_macro2::Punct);
 
 impl ParseMetaItem for proc_macro2::Group {
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
@@ -1044,6 +1095,8 @@ impl ParseMetaItem for proc_macro::TokenTree {
     }
 }
 
+impl_fmt_key_string_display!(proc_macro::TokenTree, #proc_macro);
+
 #[cfg(feature = "proc-macro")]
 #[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
 impl ParseMetaItem for proc_macro::TokenStream {
@@ -1052,6 +1105,8 @@ impl ParseMetaItem for proc_macro::TokenStream {
         Ok(input.parse::<proc_macro2::TokenStream>()?.into())
     }
 }
+
+impl_fmt_key_string_display!(proc_macro::TokenStream, #proc_macro);
 
 #[cfg(feature = "proc-macro")]
 #[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
@@ -1065,6 +1120,8 @@ impl ParseMetaItem for proc_macro::Literal {
     }
 }
 
+impl_fmt_key_string_display!(proc_macro::Literal, #proc_macro);
+
 #[cfg(feature = "proc-macro")]
 #[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
 impl ParseMetaItem for proc_macro::Punct {
@@ -1076,6 +1133,8 @@ impl ParseMetaItem for proc_macro::Punct {
         }
     }
 }
+
+impl_fmt_key_string_display!(proc_macro::Punct, #proc_macro);
 
 #[cfg(feature = "proc-macro")]
 #[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
@@ -1089,6 +1148,8 @@ impl ParseMetaItem for proc_macro::Group {
     }
 }
 
+impl_fmt_key_string_display!(proc_macro::Group, #proc_macro);
+
 #[cfg(feature = "proc-macro")]
 #[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
 impl ParseMetaItem for proc_macro::Ident {
@@ -1100,6 +1161,8 @@ impl ParseMetaItem for proc_macro::Ident {
         }
     }
 }
+
+impl_fmt_key_string_display!(proc_macro::Ident, #proc_macro);
 
 impl<T: ParseMetaItem, P: Parse + Default> ParseMetaItem for Punctuated<T, P> {
     #[inline]
@@ -1143,20 +1206,19 @@ impl<T: ParseMetaItem, P: Parse + Default> ParseMetaFlatUnnamed for Punctuated<T
 }
 
 impl<T: ToKeyString, P: ToTokens> ToKeyString for Punctuated<T, P> {
-    fn to_key_string(&self) -> Cow<str> {
-        let mut s = String::from("[");
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_char('[')?;
         for p in self.pairs() {
             match p {
                 syn::punctuated::Pair::Punctuated(t, p) => {
-                    s.push_str(&t.to_key_string());
-                    s.push_str(&p.to_token_stream().to_string());
-                    s.push(' ');
+                    t.fmt_key_string(f)?;
+                    p.to_token_stream().fmt_key_string(f)?;
+                    f.write_char(' ')?;
                 }
-                syn::punctuated::Pair::End(t) => s.push_str(&t.to_key_string()),
+                syn::punctuated::Pair::End(t) => t.fmt_key_string(f)?,
             }
         }
-        s.push(']');
-        Cow::Owned(s)
+        f.write_char(']')
     }
 }
 
@@ -1172,8 +1234,8 @@ macro_rules! impl_parse_meta_item_syn {
         $(#[$attr])*
         impl ToKeyString for $ty {
             #[inline]
-            fn to_key_string(&self) -> Cow<str> {
-                Cow::Owned(self.to_token_stream().to_string())
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                self.to_token_stream().fmt_key_string(f)
             }
         }
     };
@@ -1206,8 +1268,8 @@ macro_rules! impl_parse_meta_paren_item_syn {
         $(#[$attr])*
         impl ToKeyString for $ty {
             #[inline]
-            fn to_key_string(&self) -> Cow<str> {
-                Cow::Owned(self.to_token_stream().to_string())
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                self.to_token_stream().fmt_key_string(f)
             }
         }
     };
@@ -1248,6 +1310,12 @@ impl ParseMetaItem for syn::Ident {
         syn::ext::IdentExt::parse_any(input)
     }
 }
+impl ToKeyString for syn::Ident {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
 impl_parse_meta_item_syn!(syn::Lifetime);
 impl_parse_meta_item_syn!(syn::LifetimeDef);
 impl_parse_meta_item_syn!(syn::Lit);
@@ -1271,8 +1339,17 @@ impl ParseMetaItem for syn::Path {
 }
 impl ToKeyString for syn::Path {
     #[inline]
-    fn to_key_string(&self) -> Cow<str> {
-        Cow::Owned(path_to_string(self))
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (i, seg) in self.segments.iter().enumerate() {
+            if i > 0 {
+                f.write_str("::")?;
+            }
+            seg.ident.fmt_key_string(f)?;
+            if !seg.arguments.is_empty() {
+                seg.arguments.to_token_stream().fmt_key_string(f)?;
+            }
+        }
+        Ok(())
     }
 }
 impl_parse_meta_item_syn!(syn::PathSegment);
@@ -1321,8 +1398,12 @@ impl ParseMetaItem for () {
 
 impl ToKeyString for () {
     #[inline]
-    fn to_key_string(&self) -> Cow<str> {
-        Cow::Borrowed("()")
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("()")
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        f("()")
     }
 }
 
@@ -1370,19 +1451,19 @@ macro_rules! impl_parse_meta_item_tuple {
 
         impl<$($param: ToKeyString,)+> ToKeyString for ($($param,)+) {
             #[inline]
-            fn to_key_string(&self) -> Cow<str> {
-                let mut s = String::from("(");
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_char('(')?;
+
                 $(
-                    impl_parse_meta_item_tuple!(@push_comma s, $index);
-                    s.push_str(&*self.$index.to_key_string());
+                    impl_parse_meta_item_tuple!(@push_comma f, $index);
+                    self.$index.fmt_key_string(f)?;
                 )+
-                s.push(')');
-                Cow::Owned(s)
+                f.write_char(')')
             }
         }
     };
-    (@push_comma $s:ident, 0) => { };
-    (@push_comma $s:ident, $index:literal) => { $s.push_str(", "); };
+    (@push_comma $f:ident, 0) => { };
+    (@push_comma $f:ident, $index:literal) => { $f.write_str(", ")?; };
 }
 
 impl_parse_meta_item_tuple!(1: 0 T0 t0);

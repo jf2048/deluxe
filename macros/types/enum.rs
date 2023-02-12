@@ -95,7 +95,7 @@ impl<'e> Enum<'e> {
                             ..
                         }) => {
                             let ty = &field.field.ty;
-                            let prefix = parse_helpers::path_to_string(prefix);
+                            let prefix = parse_helpers::key_to_string(prefix);
                             let names = quote_spanned! { ty.span() =>
                                 <#ty as #crate_::ParseMetaFlatNamed>::field_names()
                             };

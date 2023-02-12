@@ -431,14 +431,14 @@ impl<'v> Variant<'v> {
         quote_mixed! {
             let mut key: #priv_::Option<&'static #priv_::str> = #priv_::Option::None;
             let mut value = #priv_::FieldStatus::None;
-            #(let mut #paths_ident = #priv_::HashMap::<#priv_::String, #priv_::Span>::new();)*
+            #(let mut #paths_ident = #priv_::HashMap::<#priv_::SmallString<'static>, #priv_::Span>::new();)*
             let errors = #crate_::Errors::new();
             errors.push_result(#priv_::parse_helpers::parse_struct(#inputs_expr, |input, p, span| {
                 let inputs = [input];
                 let inputs = inputs.as_slice();
                 let cur = p.strip_prefix(prefix);
                 #(if let #priv_::Option::Some(cur) = cur {
-                    #paths_ident.insert(#priv_::ToOwned::to_owned(cur), span);
+                    #paths_ident.insert(<#priv_::SmallString as #priv_::From<_>>::from(cur).into_owned(), span);
                 })*
                 match cur {
                     #(#variant_matches)*
@@ -483,7 +483,7 @@ impl<'v> Variant<'v> {
                     };
                     let prefix = prefix
                         .as_ref()
-                        .map(parse_helpers::path_to_string)
+                        .map(parse_helpers::key_to_string)
                         .unwrap_or_default();
                     quote_mixed! { (#prefix, #names) }
                 }

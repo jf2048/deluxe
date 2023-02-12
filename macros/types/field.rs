@@ -326,7 +326,7 @@ impl<'f> Field<'f> {
                     ..
                 }) => {
                     let ty = f.constraint_ty();
-                    let prefix = parse_helpers::path_to_string(prefix);
+                    let prefix = parse_helpers::key_to_string(prefix);
                     let names = quote_spanned! { ty.span() =>
                         <#ty as #crate_::ParseMetaFlatNamed>::field_names()
                     };
@@ -415,7 +415,7 @@ impl<'f> Field<'f> {
             if self.field.ident.is_some() {
                 let prefix = match prefix {
                     Some(prefix) => {
-                        let prefix = parse_helpers::path_to_string(prefix);
+                        let prefix = parse_helpers::key_to_string(prefix);
                         quote_mixed! {
                             &#priv_::parse_helpers::join_prefix(prefix, #prefix)
                         }

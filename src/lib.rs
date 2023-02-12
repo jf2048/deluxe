@@ -587,14 +587,14 @@
 
 #[doc(hidden)]
 pub mod ____private {
-    pub use deluxe_core::parse_helpers::{self, FieldStatus};
+    pub use deluxe_core::parse_helpers::{self, FieldStatus, SmallString};
     pub use once_cell::sync::OnceCell as SyncOnceCell;
     pub use proc_macro2::Span;
     pub use std::{
         borrow::{Borrow, Cow, ToOwned},
         clone::Clone,
         collections::HashMap,
-        convert::AsRef,
+        convert::{AsRef, From},
         default::Default,
         format, format_args,
         iter::IntoIterator,

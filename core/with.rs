@@ -626,8 +626,12 @@ macro_rules! define_with_map {
             }
             impl $crate::ToKeyString for InnerKey where $key: $crate::ToKeyString {
                 #[inline]
-                fn to_key_string(&self) -> $crate::Cow<$crate::primitive::str> {
-                    self.0.to_key_string()
+                fn fmt_key_string(&self, f: &mut $crate::fmt::Formatter) -> $crate::fmt::Result {
+                    self.0.fmt_key_string(f)
+                }
+                #[inline]
+                fn with_key_string<R>(&self, f: impl $crate::ops::FnOnce(&$crate::primitive::str) -> R) -> R {
+                    self.0.with_key_string(f)
                 }
             }
 
