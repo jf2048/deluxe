@@ -9,7 +9,7 @@ struct MetaDef {
     pub parse: TokenStream,
     pub inline: Option<TokenStream>,
     pub flag: Option<TokenStream>,
-    pub default: Option<syn::Expr>,
+    pub default: Option<TokenStream>,
     pub extra: Option<TokenStream>,
     pub crate_path: syn::Path,
     pub priv_path: syn::Path,
@@ -47,9 +47,9 @@ fn impl_for_struct(
 
             let fields = struct_attr.fields.as_slice();
 
-            let make_inline_expr = |inputs_expr: TokenStream| -> syn::Expr {
+            let make_inline_expr = |inputs_expr: TokenStream| -> TokenStream {
                 match &struct_.fields {
-                    syn::Fields::Named(_) => parse_quote_mixed! {
+                    syn::Fields::Named(_) => quote_mixed! {
                         <Self as #crate_::ParseMetaFlatNamed>::parse_meta_flat_named(
                             #inputs_expr,
                             _mode,
@@ -57,10 +57,10 @@ fn impl_for_struct(
                             !<Self as #crate_::ParseMetaFlatNamed>::ACCEPTS_ALL,
                         )
                     },
-                    syn::Fields::Unnamed(_) => parse_quote_mixed! {
+                    syn::Fields::Unnamed(_) => quote_mixed! {
                         <Self as #crate_::ParseMetaFlatUnnamed>::parse_meta_flat_unnamed(#inputs_expr, _mode, 0)
                     },
-                    syn::Fields::Unit => parse_quote_mixed! {
+                    syn::Fields::Unit => quote_mixed! {
                         <Self as #crate_::ParseMetaItem>::parse_meta_item_inline(
                             #inputs_expr, #crate_::ParseMode::Unnamed,
                         )
@@ -199,9 +199,10 @@ fn impl_for_struct(
         }
         _ => {}
     }
-    let default = struct_attr
-        .and_then(|s| s.default)
-        .map(|d| d.to_expr(&syn::parse_quote! { Self }, priv_).into_owned());
+    let default = struct_attr.and_then(|s| s.default).map(|d| {
+        d.to_expr(Some(&syn::parse_quote_spanned! { d.span() => Self }), priv_)
+            .into_owned()
+    });
     Some(MetaDef {
         parse,
         inline,
@@ -274,9 +275,10 @@ fn impl_for_enum(input: &syn::DeriveInput, errors: &Errors) -> Option<MetaDef> {
         flag: Some(quote_mixed! {
             #priv_::parse_helpers::parse_empty_meta_item(span, #crate_::ParseMode::Named(span))
         }),
-        default: enum_attr
-            .and_then(|s| s.default)
-            .map(|d| d.to_expr(&syn::parse_quote! { Self }, priv_).into_owned()),
+        default: enum_attr.and_then(|s| s.default).map(|d| {
+            d.to_expr(Some(&syn::parse_quote_spanned! { d.span() => Self }), priv_)
+                .into_owned()
+        }),
         extra: Some(quote_mixed! {
             impl #impl_generics #crate_::ParseMetaFlatNamed for #enum_ident #type_generics #where_clause {
                 #[inline]
@@ -375,7 +377,7 @@ pub fn impl_parse_meta_item(input: syn::DeriveInput, errors: &Errors) -> TokenSt
         quote_mixed! {
             #[inline]
             fn missing_meta_item(name: &#priv_::str, span: #priv_::Span) -> #crate_::Result<Self> {
-                #crate_::Result::Ok(#default)
+                #crate_::Result::Ok((#default))
             }
         }
     });

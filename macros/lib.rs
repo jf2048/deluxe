@@ -33,7 +33,7 @@ use proc_macro::TokenStream;
 #[proc_macro_derive(ExtractAttributes, attributes(deluxe))]
 pub fn derive_extract_attributes(item: TokenStream) -> TokenStream {
     let errors = Errors::new();
-    let mut tokens = util::parse::<syn::DeriveInput>(item.into(), &errors)
+    let mut tokens = util::parse::<syn::DeriveInput>(item, &errors)
         .map(|input| {
             parse_attributes::impl_parse_attributes(input, &errors, parse_attributes::Mode::Extract)
         })
@@ -113,7 +113,7 @@ pub fn derive_extract_attributes(item: TokenStream) -> TokenStream {
 #[proc_macro_derive(ParseAttributes, attributes(deluxe))]
 pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
     let errors = Errors::new();
-    let mut tokens = util::parse::<syn::DeriveInput>(item.into(), &errors)
+    let mut tokens = util::parse::<syn::DeriveInput>(item, &errors)
         .map(|input| {
             parse_attributes::impl_parse_attributes(input, &errors, parse_attributes::Mode::Parse)
         })
@@ -172,7 +172,9 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///   [`Err`](deluxe_core::Result::Err) will cause the entire parse to fail.
 ///
 ///   This attribute can be specified multiple times. When multiple `and_then` attributes are
-///   present, Deluxe will execute each function in order the attributs were specified.
+///   present, Deluxe will chain each function in the order the attributes were specified.
+///
+///   ##### Example
 ///
 ///   ```ignore
 ///   #[derive(deluxe::ParseMetaItem)]
@@ -317,6 +319,54 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 ///   implementations are provided for common collection types. Custom map types can be allowed as
 ///   a rest field by providing an implementation of that trait.
 ///
+/// - ##### `#[deluxe(map = expr)]`
+///
+///   `#[deluxe(and_then = expr)]`
+///
+///   Executes additional functions ater parsing to perform additional transformations or
+///   validation on the input.
+///
+///   These attributes are simple wrappers around [`Result::map`](deluxe_core::Result::map) and
+///   [`Result::and_then`](deluxe_core::Result::and_then). These attributes can be specified
+///   multiple times. When multiple are present, Deluxe will chain each function in the order the
+///   attributes were specified.
+///
+///   For `map`, the function returned by `expr` must conform to the signature `fn(T) -> U`. For
+///   `and_then`, the function returned by `expr` must conform to the signature <code>fn(T) ->
+///   [deluxe::Result](deluxe_core::Result)&lt;U></code>. Returning
+///   [`Err`](deluxe_core::Result::Err) will cause the entire parse to fail. Arbitrary types can be
+///   used for `T` and `U` as long as the following constraints hold:
+///
+///   - The first function must have a fully specified type for `T`, which will have its
+///   [`ParseMetaItem`](deluxe_core::ParseMetaItem) implementation used.
+///   - The `U from any function in the chain matches the `T` for the following function.
+///   - The last function must have a type for `U` that matches the type of the field.
+///
+///   ##### Example
+///
+///   ```ignore
+///   #[derive(deluxe::ParseMetaItem)]
+///   struct Data {
+///       // parses as an Ident but stored as a string
+///       #[deluxe(map = |i: syn::Ident| i.to_string())]
+///       ident_string: String,
+///       // converts an Ident to a string and does a validation
+///       #[deluxe(and_then = Self::check_ident)]
+///       valid_ident_string: String,
+///   }
+///
+///   impl Data {
+///       fn check_ident(i: syn::Ident) -> deluxe::Result<String> {
+///           let s = i.to_string();
+///           if s == "invalid" {
+///               Err(syn::Error::new(i.span(), "`invalid` not allowed"))
+///           } else {
+///               Ok(s)
+///           }
+///       }
+///   }
+///   ```
+///
 /// - ##### `#[deluxe(with = module)]`
 ///
 ///   When parsing, call functions from the path `module` instead of attempting to call
@@ -350,7 +400,7 @@ pub fn derive_parse_attributes(item: TokenStream) -> TokenStream {
 #[proc_macro_derive(ParseMetaItem, attributes(deluxe))]
 pub fn derive_parse_meta_item(item: TokenStream) -> TokenStream {
     let errors = Errors::new();
-    let mut tokens = util::parse::<syn::DeriveInput>(item.into(), &errors)
+    let mut tokens = util::parse::<syn::DeriveInput>(item, &errors)
         .map(|input| parse_meta_item::impl_parse_meta_item(input, &errors))
         .unwrap_or_default();
     tokens.extend(errors.into_compile_errors());

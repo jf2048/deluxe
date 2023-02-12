@@ -109,7 +109,7 @@ pub struct Struct<'s> {
     pub transparent: Option<StructTransparent>,
     pub allow_unknown_fields: Option<bool>,
     pub attributes: Vec<syn::Path>,
-    pub and_thens: Vec<syn::Expr>,
+    pub and_thens: Vec<TokenStream>,
 }
 
 impl<'s> Struct<'s> {
@@ -151,12 +151,12 @@ impl<'s> Struct<'s> {
         orig: &syn::DeriveInput,
         crate_: &syn::Path,
         mode: TokenMode,
-        inline_expr: &syn::Expr,
-        allowed_expr: &syn::Expr,
+        inline_expr: &TokenStream,
+        allowed_expr: &TokenStream,
     ) -> ItemDef {
         let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
         let priv_ = &priv_path;
-        let target = self.default.as_ref().map(|_| parse_quote_mixed! { target });
+        let target = self.default.as_ref().map(|_| quote_mixed! { target });
         let target = target
             .as_ref()
             .map(ParseTarget::Var)
@@ -197,9 +197,9 @@ impl<'s> Struct<'s> {
             }
         };
         let default_set = self.default.as_ref().map(|d| {
-            let expr = d.to_expr(&syn::parse_quote! { Self }, priv_);
+            let expr = d.to_expr(Some(&syn::parse_quote_spanned! { d.span() => Self }), priv_);
             quote_mixed! {
-                let mut target: Self = #expr;
+                let mut target: Self = (#expr);
             }
         });
         if transparent {
@@ -421,7 +421,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                                 input,
                                 span,
                                 &errors,
-                                |input, span| {
+                                |input, _, span| {
                                     let mut iter = fields.iter().filter(|f| f.is_parsable());
                                     if let Some(first) = iter.next() {
                                         if first.flatten.as_ref().map(|f| f.value).unwrap_or(false)
@@ -436,7 +436,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                                                 "`transparent` struct field cannot be `append`",
                                             ));
                                         } else if iter.next().is_none() {
-                                            return <_>::parse_meta_item_named(input, span);
+                                            return <_>::parse_meta_item_named(input, path, span);
                                         }
                                     }
                                     Err(syn::Error::new(
@@ -472,14 +472,15 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                         }
                         "crate" => crate_.parse_named_item("crate", input, span, &errors),
                         "and_then" => {
-                            match errors.push_result(<_>::parse_meta_item_named(input, span)) {
+                            match errors.push_result(<_>::parse_meta_item_named(input, path, span))
+                            {
                                 Some(e) => and_thens.push(e),
                                 None => parse_helpers::skip_meta_item(input),
                             }
                         }
                         "attributes" => {
                             match errors
-                                .push_result(mod_path_vec::parse_meta_item_named(input, span))
+                                .push_result(mod_path_vec::parse_meta_item_named(input, path, span))
                             {
                                 Some(attrs) => attributes.extend(attrs.into_iter()),
                                 None => parse_helpers::skip_meta_item(input),

@@ -1,6 +1,6 @@
 [package]
 name = "deluxe"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "Procedural macro attribute parser"
 license = "MIT"
@@ -10,20 +10,23 @@ repository = "https://github.com/jf2048/deluxe.git"
 readme = "README.md"
 keywords = ["macros", "derive", "attributes"]
 include = ["/src", "/tests", "/README.md", "/COPYING"]
+resolver = "2"
 
 [features]
-default = ["proc-macro"]
-proc-macro = ["syn/proc-macro"]
+default = ["full", "proc-macro"]
+full = ["deluxe-core/full", "syn/full"]
+proc-macro = ["deluxe-core/proc-macro", "syn/proc-macro"]
 
 [dependencies]
 once_cell = "1.13.0"
 proc-macro2 = "1.0.38"
-syn = { version = "1.0.96", features = ["full", "parsing"], default-features = false }
-deluxe-core = { path = "./core", version = "0.3.0" }
-deluxe-macros = { path = "./macros", version = "0.3.0" }
+syn = { version = "1.0.96", default-features = false }
+deluxe-core = { path = "./core", version = "0.4.0", default-features = false }
+deluxe-macros = { path = "./macros", version = "0.4.0" }
 
 [dev-dependencies]
 quote = "1.0.18"
+deluxe-core = { path = "./core", version = "0.4.0", features = ["full"], default-features = false }
 
 [workspace]
 members = ["core", "macros"]

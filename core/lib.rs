@@ -15,9 +15,13 @@
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
 
+#[cfg(feature = "proc-macro")]
+extern crate proc_macro;
+
 mod parse_attributes;
 pub mod parse_helpers;
 mod parse_meta;
+mod small_string;
 mod util;
 pub mod validations;
 pub mod with;
@@ -35,8 +39,9 @@ pub use {
     std::{
         borrow::Borrow,
         collections::HashMap,
+        fmt,
         hash::{Hash, Hasher},
-        primitive,
+        ops, primitive,
     },
     AsRef, Clone, Default, Eq, IntoIterator, Iterator, Option, PartialEq,
 };

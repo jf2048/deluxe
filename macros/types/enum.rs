@@ -14,7 +14,7 @@ pub struct Enum<'e> {
     pub default: Option<FieldDefault>,
     pub crate_: Option<syn::Path>,
     pub attributes: Vec<syn::Path>,
-    pub and_thens: Vec<syn::Expr>,
+    pub and_thens: Vec<TokenStream>,
     pub allow_unknown_fields: Option<bool>,
 }
 
@@ -27,7 +27,10 @@ impl<'e> Enum<'e> {
     pub fn to_inline_parsing_tokens(&self, crate_: &syn::Path, mode: TokenMode) -> TokenStream {
         let default = self.default.as_ref().map(|d| {
             let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
-            d.to_expr(&parse_quote_mixed! { Self }, &priv_path)
+            d.to_expr(
+                Some(&syn::parse_quote_spanned! { d.span() => Self }),
+                &priv_path,
+            )
         });
         Variant::to_parsing_tokens(
             &self.variants,
@@ -92,7 +95,7 @@ impl<'e> Enum<'e> {
                             ..
                         }) => {
                             let ty = &field.field.ty;
-                            let prefix = parse_helpers::path_to_string(prefix);
+                            let prefix = parse_helpers::key_to_string(prefix);
                             let names = quote_spanned! { ty.span() =>
                                 <#ty as #crate_::ParseMetaFlatNamed>::field_names()
                             };
@@ -188,14 +191,15 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
                         "default" => default.parse_named_item("default", input, span, &errors),
                         "crate" => crate_.parse_named_item("crate", input, span, &errors),
                         "and_then" => {
-                            match errors.push_result(<_>::parse_meta_item_named(input, span)) {
+                            match errors.push_result(<_>::parse_meta_item_named(input, path, span))
+                            {
                                 Some(e) => and_thens.push(e),
                                 None => parse_helpers::skip_meta_item(input),
                             }
                         }
                         "attributes" => {
                             match errors
-                                .push_result(mod_path_vec::parse_meta_item_named(input, span))
+                                .push_result(mod_path_vec::parse_meta_item_named(input, path, span))
                             {
                                 Some(attrs) => attributes.extend(attrs.into_iter()),
                                 None => parse_helpers::skip_meta_item(input),

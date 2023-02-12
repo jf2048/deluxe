@@ -1,12 +1,14 @@
 use crate::{parse_helpers::*, Errors, Result};
 use proc_macro2::Span;
+use quote::ToTokens;
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, LinkedList, VecDeque},
+    fmt::{self, Write},
     hash::Hash,
 };
 use syn::{
-    parse::{Nothing, Parse, ParseBuffer, ParseStream},
+    parse::{Nothing, Parse, ParseBuffer, ParseStream, Peek},
     punctuated::Punctuated,
     Token,
 };
@@ -124,7 +126,7 @@ pub trait ParseMetaItem: Sized {
     /// The default implementation simply calls
     /// [`parse_helpers::parse_named_meta_item`](crate::parse_helpers::parse_named_meta_item).
     #[inline]
-    fn parse_meta_item_named(input: ParseStream, span: Span) -> Result<Self> {
+    fn parse_meta_item_named(input: ParseStream, _name: &str, span: Span) -> Result<Self> {
         parse_named_meta_item(input, span)
     }
     /// Fallback for when a required item is missing.
@@ -245,6 +247,23 @@ pub trait ParseMetaRest: Sized {
     ) -> Result<Self>;
 }
 
+/// A trait for converting an attribute key to a string.
+///
+/// Used for performing path comparisons and for constructing error messages when using arbitrary
+/// types as attribute keys. Currently only used by the [`ParseMetaItem`] implementations for
+/// [`BTreeMap`] and [`HashMap`].
+pub trait ToKeyString: Sized {
+    /// Formats the given value as a key string.
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result;
+    /// Runs function `f` with the key converted to a `&str`.
+    ///
+    /// Can be specialized by values that can pass a cheaply borrowed `&str`. The default
+    /// implementation calls `f` with the result from [`key_to_string`].
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        f(&key_to_string(self))
+    }
+}
+
 macro_rules! impl_parse_meta_item_primitive {
     ($ty:ty, $lit:ty, $conv:ident) => {
         impl ParseMetaItem for $ty {
@@ -253,15 +272,18 @@ macro_rules! impl_parse_meta_item_primitive {
                 impl_parse_meta_item_primitive!(@conv input, _mode, $lit, $conv)
             }
         }
+        impl ToKeyString for $ty {
+            #[inline]
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                fmt::Display::fmt(self, f)
+            }
+        }
     };
     (@conv $input:ident, $mode:ident, $lit:ty, base10_parse) => {
         $input.parse::<$lit>()?.base10_parse()
     };
     (@conv $input:ident, $mode:ident, $lit:ty, value) => {
         Ok($input.parse::<$lit>()?.value())
-    };
-    (@conv $input:ident, $mode:ident, $lit:ty, from_value) => {
-        Ok(Self::from($input.parse::<$lit>()?.value()))
     };
     (@conv $input:ident, $mode:ident, $lit:ty, from_str) => {
         $crate::with::from_str::parse_meta_item($input, $mode)
@@ -323,10 +345,61 @@ impl_parse_meta_item_primitive!(std::num::NonZeroU64, syn::LitInt, base10_parse)
 impl_parse_meta_item_primitive!(std::num::NonZeroU128, syn::LitInt, base10_parse);
 impl_parse_meta_item_primitive!(std::num::NonZeroUsize, syn::LitInt, base10_parse);
 
-impl_parse_meta_item_primitive!(String, syn::LitStr, value);
 impl_parse_meta_item_primitive!(char, syn::LitChar, value);
-impl_parse_meta_item_primitive!(std::path::PathBuf, syn::LitStr, from_value);
-impl_parse_meta_item_primitive!(std::ffi::OsString, syn::LitStr, from_value);
+
+impl ParseMetaItem for String {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        Ok(input.parse::<syn::LitStr>()?.value())
+    }
+}
+
+impl ToKeyString for String {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        f(self)
+    }
+}
+
+impl ParseMetaItem for std::path::PathBuf {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        Ok(Self::from(input.parse::<syn::LitStr>()?.value()))
+    }
+}
+
+impl ToKeyString for std::path::PathBuf {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(&self.to_string_lossy())
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        f(&self.to_string_lossy())
+    }
+}
+
+impl ParseMetaItem for std::ffi::OsString {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        Ok(Self::from(input.parse::<syn::LitStr>()?.value()))
+    }
+}
+
+impl ToKeyString for std::ffi::OsString {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(&self.to_string_lossy())
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        f(&self.to_string_lossy())
+    }
+}
 
 impl_parse_meta_item_primitive!(std::net::IpAddr, syn::LitStr, from_str);
 impl_parse_meta_item_primitive!(std::net::Ipv4Addr, syn::LitStr, from_str);
@@ -368,6 +441,20 @@ impl<T: ParseMetaItem> ParseMetaItem for Option<T> {
     }
 }
 
+impl<T: ToKeyString> ToKeyString for Option<T> {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Some(v) => {
+                f.write_str("Some(")?;
+                v.fmt_key_string(f)?;
+                f.write_char(')')
+            }
+            None => f.write_str("None"),
+        }
+    }
+}
+
 impl<T: ParseMetaItem, const N: usize> ParseMetaItem for [T; N] {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
@@ -393,21 +480,44 @@ impl<T: ParseMetaItem, const N: usize> ParseMetaFlatUnnamed for [T; N] {
         index: usize,
     ) -> Result<Self> {
         let mut a = arrayvec::ArrayVec::<T, N>::new();
-        parse_tuple_struct(inputs, N, |stream, _, _| {
-            a.push(T::parse_meta_item(stream, ParseMode::Unnamed)?);
+        let errors = Errors::new();
+        let mut failed = 0;
+        errors.push_result(parse_tuple_struct(inputs, N, |stream, _, _| {
+            match errors.push_result(T::parse_meta_item(stream, ParseMode::Unnamed)) {
+                Some(v) => a.push(v),
+                None => {
+                    failed += 1;
+                    skip_meta_item(stream);
+                }
+            }
             Ok(())
-        })?;
-        a.into_inner().map_err(|a| {
-            syn::Error::new(
+        }));
+        if a.len() + failed != N {
+            errors.push(
                 inputs_span(inputs),
                 format!(
                     "Expected array at index {} of length {}, got {}",
                     index,
                     N,
-                    a.len()
+                    a.len() + failed,
                 ),
-            )
-        })
+            );
+        }
+        errors.check()?;
+        Ok(a.into_inner().unwrap_or_else(|_| unreachable!()))
+    }
+}
+
+impl<T: ToKeyString, const N: usize> ToKeyString for [T; N] {
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_char('[')?;
+        for (i, v) in self.iter().enumerate() {
+            if i > 0 {
+                f.write_str(", ")?;
+            }
+            v.fmt_key_string(f)?;
+        }
+        f.write_char(']')
     }
 }
 
@@ -435,19 +545,23 @@ macro_rules! impl_parse_meta_item_collection {
                 _index: usize
             ) -> Result<Self> {
                 let mut $ident = Self::new();
+                let errors = Errors::new();
                 for input in inputs {
                     let input = input.borrow();
                     loop {
                         if input.is_empty() {
                             break;
                         }
-                        let $item = $param::parse_meta_item(input, ParseMode::Unnamed)?;
-                        $push;
+                        match errors.push_result($param::parse_meta_item(input, ParseMode::Unnamed)) {
+                            Some($item) => $push,
+                            None => skip_meta_item(input),
+                        }
                         if !input.is_empty() {
                             input.parse::<Token![,]>()?;
                         }
                     }
                 }
+                errors.check()?;
                 Ok($ident)
             }
         }
@@ -463,17 +577,32 @@ macro_rules! impl_parse_meta_item_collection {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
                 let paths = paths.into_iter();
-                parse_struct(inputs, |input, p, pspan| {
+                errors.push_result(parse_struct(inputs, |input, p, pspan| {
                     if paths.clone().any(|path| path.as_ref() == p) {
-                        let $item = <_>::parse_meta_item_named(input, pspan)?;
-                        $push;
+                        match errors.push_result(<_>::parse_meta_item_named(input, p, pspan)) {
+                            Some($item) => $push,
+                            None => skip_meta_item(input),
+                        }
                     } else {
                         skip_meta_item(input);
                     }
                     Ok(())
-                })?;
+                }));
                 errors.check()?;
                 Ok($ident)
+            }
+        }
+
+        impl<$param: ToKeyString $(+ $bound $(+ $bounds)*)?> ToKeyString for $ty <$param> {
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_char('[')?;
+                for (i, v) in self.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    v.fmt_key_string(f)?;
+                }
+                f.write_char(']')
             }
         }
     };
@@ -511,10 +640,12 @@ macro_rules! impl_parse_meta_item_set {
                             break;
                         }
                         let span = input.span();
-                        let $item = $param::parse_meta_item(input, ParseMode::Unnamed)?;
-                        let span = input.span().join(span).unwrap();
-                        if !$push {
-                            errors.push(span, "Duplicate key");
+                        match errors.push_result($param::parse_meta_item(input, ParseMode::Unnamed)) {
+                            Some($item) => if !$push {
+                                let span = input.span().join(span).unwrap_or(span);
+                                errors.push(span, "Duplicate key");
+                            },
+                            None => skip_meta_item(input),
                         }
                         if !input.is_empty() {
                             input.parse::<Token![,]>()?;
@@ -543,10 +674,13 @@ macro_rules! impl_parse_meta_item_set {
                 parse_struct(inputs, |input, p, pspan| {
                     if paths.clone().any(|path| path.as_ref() == p) {
                         let span = input.span();
-                        let $item = <_>::parse_meta_item_named(input, pspan)?;
-                        let span = input.span().join(span).unwrap();
-                        if !$push {
-                            errors.push(span, "Duplicate key");
+                        let $item = <_>::parse_meta_item_named(input, p, pspan);
+                        let span = input.span().join(span).unwrap_or(span);
+                        match errors.push_result($item) {
+                            Some($item) => if !$push {
+                                errors.push(span, "Duplicate key");
+                            },
+                            None => skip_meta_item(input),
                         }
                     } else {
                         skip_meta_item(input);
@@ -557,6 +691,19 @@ macro_rules! impl_parse_meta_item_set {
                 Ok($ident)
             }
         }
+
+        impl<$param: ToKeyString $(+ $bound $(+ $bounds)*)?> ToKeyString for $ty <$param> {
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_char('[')?;
+                for (i, v) in self.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    v.fmt_key_string(f)?;
+                }
+                f.write_char(']')
+            }
+        }
     };
 }
 
@@ -565,7 +712,11 @@ macro_rules! impl_parse_meta_item_map {
         $ty:ident <$kp:ident $(: $kbound:tt $(+ $kbounds:tt)*)?, $vp:ident>,
         $ident:ident, $key:ident, $value:ident, $push:expr
     ) => {
-        impl<$kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)?, $vp: ParseMetaItem> ParseMetaItem for $ty <$kp, $vp> {
+        impl<$kp, $vp> ParseMetaItem for $ty <$kp, $vp>
+        where
+            $kp: ParseMetaItem + ToKeyString $(+ $kbound $(+ $kbounds)*)?,
+            $vp: ParseMetaItem,
+        {
             #[inline]
             fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
                 Brace::parse_delimited_meta_item(input, _mode)
@@ -576,7 +727,11 @@ macro_rules! impl_parse_meta_item_map {
             }
         }
 
-        impl<$kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)?, $vp: ParseMetaItem> ParseMetaFlatUnnamed for $ty <$kp, $vp> {
+        impl<$kp, $vp> ParseMetaFlatUnnamed for $ty <$kp, $vp>
+        where
+            $kp: ParseMetaItem + ToKeyString $(+ $kbound $(+ $kbounds)*)?,
+            $vp: ParseMetaItem,
+        {
             #[inline]
             fn field_count() -> Option<usize> {
                 None
@@ -596,10 +751,15 @@ macro_rules! impl_parse_meta_item_map {
                         }
                         let start = input.span();
                         let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
-                        let span = input.span().join(start).unwrap();
-                        let $value = <_>::parse_meta_item_named(input, start)?;
-                        if !$push {
-                            errors.push(span, "Duplicate key");
+                        let span = input.span().join(start).unwrap_or(start);
+                        let $value = errors.push_result($key.with_key_string(|ks| {
+                            <_>::parse_meta_item_named(input, &ks, start)
+                        }));
+                        match $value {
+                            Some($value) => if !$push {
+                                errors.push(span, "Duplicate key");
+                            }
+                            None => skip_meta_item(input),
                         }
                         if !input.is_empty() {
                             input.parse::<Token![,]>()?;
@@ -613,7 +773,7 @@ macro_rules! impl_parse_meta_item_map {
 
         impl<$kp, $vp> ParseMetaRest for $ty <$kp, $vp>
         where
-            $kp: ParseMetaItem $(+ $kbound $(+ $kbounds)*)? + std::borrow::Borrow<syn::Path>,
+            $kp: ParseMetaItem + ToKeyString $(+ $kbound $(+ $kbounds)*)?,
             $vp: ParseMetaItem,
         {
             fn parse_meta_rest<'s, S: Borrow<ParseBuffer<'s>>>(
@@ -630,11 +790,16 @@ macro_rules! impl_parse_meta_item_map {
                         }
                         let start = input.span();
                         let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
-                        if exclude.contains(&path_to_string($key.borrow()).as_str()) {
-                            skip_meta_item(input);
-                        } else {
-                            let span = input.span().join(start).unwrap();
-                            let $value = <_>::parse_meta_item_named(input, start)?;
+                        let span = input.span().join(start).unwrap_or(start);
+                        let $value = errors.push_result($key.with_key_string(|ks| {
+                            if exclude.contains(&ks) {
+                                skip_meta_item(input);
+                                Ok::<_, crate::Error>(None)
+                            } else {
+                                Ok(Some(<_>::parse_meta_item_named(input, &ks, start)?))
+                            }
+                        })).flatten();
+                        if let Some($value) = $value {
                             if !$push {
                                 errors.push(span, "Duplicate key");
                             }
@@ -646,6 +811,25 @@ macro_rules! impl_parse_meta_item_map {
                 }
                 errors.check()?;
                 Ok($ident)
+            }
+        }
+
+        impl<$kp, $vp> ToKeyString for $ty <$kp, $vp>
+        where
+            $kp: ToKeyString $(+ $kbound $(+ $kbounds)*)?,
+            $vp: ToKeyString,
+        {
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_char('{')?;
+                for (i, (k, v)) in self.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    k.fmt_key_string(f)?;
+                    f.write_str(" = ")?;
+                    v.fmt_key_string(f)?;
+                }
+                f.write_char('}')
             }
         }
     };
@@ -676,9 +860,55 @@ macro_rules! impl_parse_meta_item_wrapper {
 }
 
 impl_parse_meta_item_wrapper!(Box<T>);
+
+impl<T: ToKeyString> ToKeyString for Box<T> {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (**self).fmt_key_string(f)
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        (**self).with_key_string(f)
+    }
+}
+
 impl_parse_meta_item_wrapper!(std::rc::Rc<T>);
+
+impl<T: ToKeyString> ToKeyString for std::rc::Rc<T> {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (**self).fmt_key_string(f)
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        (**self).with_key_string(f)
+    }
+}
 impl_parse_meta_item_wrapper!(std::cell::Cell<T>);
+
+impl<T: ToKeyString + Copy> ToKeyString for std::cell::Cell<T> {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.get().fmt_key_string(f)
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        self.get().with_key_string(f)
+    }
+}
+
 impl_parse_meta_item_wrapper!(std::cell::RefCell<T>);
+
+impl<T: ToKeyString> ToKeyString for std::cell::RefCell<T> {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.borrow().fmt_key_string(f)
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        self.borrow().with_key_string(f)
+    }
+}
 
 impl<'t, T: ParseMetaItem + Clone> ParseMetaItem for std::borrow::Cow<'t, T> {
     #[inline]
@@ -688,6 +918,17 @@ impl<'t, T: ParseMetaItem + Clone> ParseMetaItem for std::borrow::Cow<'t, T> {
     #[inline]
     fn parse_meta_item_flag(span: Span) -> Result<Self> {
         T::parse_meta_item_flag(span).map(Self::Owned)
+    }
+}
+
+impl<'t, T: ToKeyString + Clone> ToKeyString for std::borrow::Cow<'t, T> {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (**self).fmt_key_string(f)
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        (**self).with_key_string(f)
     }
 }
 
@@ -702,22 +943,57 @@ impl ParseMetaItem for proc_macro2::TokenTree {
     }
 }
 
-/// Consumes all remaining tokens.
+macro_rules! impl_fmt_key_string_display {
+    ($(#[$attr:meta])* $ty:ty) => {
+        $(#[$attr])*
+        impl ToKeyString for $ty {
+            #[inline]
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                fmt::Display::fmt(self, f)
+            }
+        }
+    };
+    ($ty:ty, #proc_macro) => {
+        impl_fmt_key_string_display!(
+            #[cfg(feature = "proc-macro")]
+            #[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+            $ty
+        );
+    };
+}
+
+impl_fmt_key_string_display!(proc_macro2::TokenTree);
+
+/// Consumes up to the next comma or the end of the stream. Returns an error if the stream is
+/// empty or the first token is a comma.
 impl ParseMetaItem for proc_macro2::TokenStream {
     #[inline]
-    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+    fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
+        if input.peek(Token![,]) {
+            return Err(syn::Error::new(input.span(), "unexpected comma"));
+        }
         input.step(|cursor| {
             let mut cursor = *cursor;
             let mut tts = Vec::new();
             while let Some((tt, rest)) = cursor.token_tree() {
-                tts.push(tt);
+                match tt {
+                    proc_macro2::TokenTree::Punct(p) if p.as_char() == ',' => break,
+                    tt => tts.push(tt),
+                }
                 cursor = rest;
+            }
+            if tts.is_empty() {
+                return Err(syn::Error::new(mode.to_span(input), "expected token"));
             }
             Ok((tts.into_iter().collect(), cursor))
         })
     }
     #[inline]
     fn parse_meta_item_flag(_: Span) -> Result<Self> {
+        Ok(Default::default())
+    }
+    #[inline]
+    fn missing_meta_item(_name: &str, _span: Span) -> Result<Self> {
         Ok(Default::default())
     }
 }
@@ -746,6 +1022,8 @@ impl ParseMetaFlatUnnamed for proc_macro2::TokenStream {
     }
 }
 
+impl_fmt_key_string_display!(proc_macro2::TokenStream);
+
 impl ParseMetaItem for proc_macro2::Literal {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
@@ -757,6 +1035,8 @@ impl ParseMetaItem for proc_macro2::Literal {
     }
 }
 
+impl_fmt_key_string_display!(proc_macro2::Literal);
+
 impl ParseMetaItem for proc_macro2::Punct {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
@@ -767,6 +1047,8 @@ impl ParseMetaItem for proc_macro2::Punct {
         })
     }
 }
+
+impl_fmt_key_string_display!(proc_macro2::Punct);
 
 impl ParseMetaItem for proc_macro2::Group {
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
@@ -787,7 +1069,126 @@ impl ParseMetaItem for proc_macro2::Group {
     }
 }
 
-impl<T: ParseMetaItem, P: Parse + Default> ParseMetaItem for Punctuated<T, P> {
+#[cfg(feature = "proc-macro")]
+#[inline]
+fn convert_token_tree(tt: proc_macro2::TokenTree) -> syn::Result<proc_macro::TokenTree> {
+    #[inline]
+    fn convert_delimiter(d: proc_macro2::Delimiter) -> proc_macro::Delimiter {
+        match d {
+            proc_macro2::Delimiter::Parenthesis => proc_macro::Delimiter::Parenthesis,
+            proc_macro2::Delimiter::Brace => proc_macro::Delimiter::Brace,
+            proc_macro2::Delimiter::Bracket => proc_macro::Delimiter::Bracket,
+            proc_macro2::Delimiter::None => proc_macro::Delimiter::None,
+        }
+    }
+    #[inline]
+    fn convert_spacing(s: proc_macro2::Spacing) -> proc_macro::Spacing {
+        match s {
+            proc_macro2::Spacing::Alone => proc_macro::Spacing::Alone,
+            proc_macro2::Spacing::Joint => proc_macro::Spacing::Joint,
+        }
+    }
+    Ok(match tt {
+        proc_macro2::TokenTree::Group(g) => {
+            proc_macro::Group::new(convert_delimiter(g.delimiter()), g.stream().into()).into()
+        }
+        proc_macro2::TokenTree::Ident(i) => {
+            proc_macro::Ident::new(&i.to_string(), i.span().unwrap()).into()
+        }
+        proc_macro2::TokenTree::Punct(p) => {
+            proc_macro::Punct::new(p.as_char(), convert_spacing(p.spacing())).into()
+        }
+        proc_macro2::TokenTree::Literal(l) => l
+            .to_string()
+            .parse::<proc_macro::Literal>()
+            .map(|mut pl| {
+                pl.set_span(l.span().unwrap());
+                pl
+            })
+            .map_err(|e| syn::Error::new(l.span(), e))?
+            .into(),
+    })
+}
+
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+impl ParseMetaItem for proc_macro::TokenTree {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        convert_token_tree(input.parse::<proc_macro2::TokenTree>()?)
+    }
+}
+
+impl_fmt_key_string_display!(proc_macro::TokenTree, #proc_macro);
+
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+impl ParseMetaItem for proc_macro::TokenStream {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        Ok(input.parse::<proc_macro2::TokenStream>()?.into())
+    }
+}
+
+impl_fmt_key_string_display!(proc_macro::TokenStream, #proc_macro);
+
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+impl ParseMetaItem for proc_macro::Literal {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        match convert_token_tree(proc_macro2::TokenTree::Literal(input.parse()?))? {
+            proc_macro::TokenTree::Literal(l) => Ok(l),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl_fmt_key_string_display!(proc_macro::Literal, #proc_macro);
+
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+impl ParseMetaItem for proc_macro::Punct {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        match convert_token_tree(proc_macro2::TokenTree::Punct(input.parse()?))? {
+            proc_macro::TokenTree::Punct(p) => Ok(p),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl_fmt_key_string_display!(proc_macro::Punct, #proc_macro);
+
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+impl ParseMetaItem for proc_macro::Group {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        match convert_token_tree(proc_macro2::TokenTree::Group(input.parse()?))? {
+            proc_macro::TokenTree::Group(g) => Ok(g),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl_fmt_key_string_display!(proc_macro::Group, #proc_macro);
+
+#[cfg(feature = "proc-macro")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+impl ParseMetaItem for proc_macro::Ident {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        match convert_token_tree(proc_macro2::TokenTree::Ident(input.parse()?))? {
+            proc_macro::TokenTree::Ident(i) => Ok(i),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl_fmt_key_string_display!(proc_macro::Ident, #proc_macro);
+
+impl<T: ParseMetaItem, P: Parse + Peek + Default> ParseMetaItem for Punctuated<T, P> {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
         Bracket::parse_delimited_meta_item(input, ParseMode::Unnamed)
@@ -801,7 +1202,7 @@ impl<T: ParseMetaItem, P: Parse + Default> ParseMetaItem for Punctuated<T, P> {
     }
 }
 
-impl<T: ParseMetaItem, P: Parse + Default> ParseMetaFlatUnnamed for Punctuated<T, P> {
+impl<T: ParseMetaItem, P: Parse + Peek + Default> ParseMetaFlatUnnamed for Punctuated<T, P> {
     #[inline]
     fn field_count() -> Option<usize> {
         None
@@ -812,35 +1213,84 @@ impl<T: ParseMetaItem, P: Parse + Default> ParseMetaFlatUnnamed for Punctuated<T
         _index: usize,
     ) -> Result<Self> {
         let mut p = Punctuated::new();
+        let errors = Errors::new();
         for input in inputs {
             let input = input.borrow();
             loop {
                 if input.is_empty() {
                     break;
                 }
-                p.push(T::parse_meta_item(input, ParseMode::Unnamed)?);
-                if !input.is_empty() {
-                    input.parse::<P>()?;
+                match errors.push_result(T::parse_meta_item(input, ParseMode::Unnamed)) {
+                    Some(v) => {
+                        p.push(v);
+                        if !input.is_empty() && errors.push_result(input.parse::<P>()).is_some() {
+                            break;
+                        }
+                    }
+                    None => {
+                        // skip tokens until we find a P
+                        while !input.is_empty() {
+                            if input.peek(P::default()) {
+                                input.parse::<P>()?;
+                                break;
+                            }
+                            input.step(|c| Ok(((), c.token_tree().map(|(_, c)| c).unwrap())))?;
+                        }
+                    }
                 }
             }
         }
+        errors.check()?;
         Ok(p)
     }
 }
 
+impl<T: ToKeyString, P: ToTokens> ToKeyString for Punctuated<T, P> {
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_char('[')?;
+        for p in self.pairs() {
+            match p {
+                syn::punctuated::Pair::Punctuated(t, p) => {
+                    t.fmt_key_string(f)?;
+                    p.to_token_stream().fmt_key_string(f)?;
+                    f.write_char(' ')?;
+                }
+                syn::punctuated::Pair::End(t) => t.fmt_key_string(f)?,
+            }
+        }
+        f.write_char(']')
+    }
+}
+
 macro_rules! impl_parse_meta_item_syn {
-    ($ty:ty) => {
+    ($(#[$attr:meta])* $ty:ty) => {
+        $(#[$attr])*
         impl ParseMetaItem for $ty {
             #[inline]
             fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
                 input.parse()
             }
         }
+        $(#[$attr])*
+        impl ToKeyString for $ty {
+            #[inline]
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                self.to_token_stream().fmt_key_string(f)
+            }
+        }
+    };
+    ($ty:ty, #full) => {
+        impl_parse_meta_item_syn!(
+            #[cfg(feature = "full")]
+            #[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
+            $ty
+        );
     };
 }
 
 macro_rules! impl_parse_meta_paren_item_syn {
-    ($ty:ty) => {
+    ($(#[$attr:meta])* $ty:ty) => {
+        $(#[$attr])*
         impl ParseMetaItem for $ty {
             #[inline]
             fn parse_meta_item(input: ParseStream, mode: ParseMode) -> Result<Self> {
@@ -855,6 +1305,20 @@ macro_rules! impl_parse_meta_paren_item_syn {
                 }
             }
         }
+        $(#[$attr])*
+        impl ToKeyString for $ty {
+            #[inline]
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                self.to_token_stream().fmt_key_string(f)
+            }
+        }
+    };
+    ($ty:ty, #full) => {
+        impl_parse_meta_paren_item_syn!(
+            #[cfg(feature = "full")]
+            #[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
+            $ty
+        );
     };
 }
 
@@ -863,27 +1327,33 @@ impl_parse_meta_item_syn!(syn::BareFnArg);
 impl_parse_meta_item_syn!(syn::BoundLifetimes);
 impl_parse_meta_item_syn!(syn::BinOp);
 impl_parse_meta_paren_item_syn!(syn::Binding);
-impl_parse_meta_item_syn!(syn::Expr);
-impl_parse_meta_item_syn!(syn::ExprArray);
-impl_parse_meta_paren_item_syn!(syn::ExprAssign);
-impl_parse_meta_item_syn!(syn::ExprCall);
-impl_parse_meta_item_syn!(syn::ExprCast);
-impl_parse_meta_item_syn!(syn::ExprField);
-impl_parse_meta_item_syn!(syn::ExprIndex);
-impl_parse_meta_item_syn!(syn::ExprLit);
-impl_parse_meta_item_syn!(syn::ExprMethodCall);
-impl_parse_meta_item_syn!(syn::ExprParen);
-impl_parse_meta_item_syn!(syn::ExprPath);
-impl_parse_meta_item_syn!(syn::ExprRange);
-impl_parse_meta_item_syn!(syn::ExprRepeat);
-impl_parse_meta_item_syn!(syn::ExprTuple);
-impl_parse_meta_item_syn!(syn::ExprType);
-impl_parse_meta_item_syn!(syn::FnArg);
+impl_parse_meta_item_syn!(syn::Expr, #full);
+impl_parse_meta_item_syn!(syn::ExprArray, #full);
+impl_parse_meta_paren_item_syn!(syn::ExprAssign, #full);
+impl_parse_meta_item_syn!(syn::ExprCall, #full);
+impl_parse_meta_item_syn!(syn::ExprCast, #full);
+impl_parse_meta_item_syn!(syn::ExprField, #full);
+impl_parse_meta_item_syn!(syn::ExprIndex, #full);
+impl_parse_meta_item_syn!(syn::ExprLit, #full);
+impl_parse_meta_item_syn!(syn::ExprMethodCall, #full);
+impl_parse_meta_item_syn!(syn::ExprParen, #full);
+impl_parse_meta_item_syn!(syn::ExprPath, #full);
+impl_parse_meta_item_syn!(syn::ExprRange, #full);
+impl_parse_meta_item_syn!(syn::ExprRepeat, #full);
+impl_parse_meta_item_syn!(syn::ExprTuple, #full);
+impl_parse_meta_item_syn!(syn::ExprType, #full);
+impl_parse_meta_item_syn!(syn::FnArg, #full);
 impl_parse_meta_item_syn!(syn::GenericParam);
 impl ParseMetaItem for syn::Ident {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
         syn::ext::IdentExt::parse_any(input)
+    }
+}
+impl ToKeyString for syn::Ident {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self, f)
     }
 }
 impl_parse_meta_item_syn!(syn::Lifetime);
@@ -900,12 +1370,32 @@ impl_parse_meta_item_syn!(syn::MetaList);
 impl_parse_meta_paren_item_syn!(syn::Meta);
 impl_parse_meta_paren_item_syn!(syn::MetaNameValue);
 impl_parse_meta_paren_item_syn!(syn::NestedMeta);
-impl_parse_meta_item_syn!(syn::Pat);
-impl_parse_meta_item_syn!(syn::Path);
+impl_parse_meta_item_syn!(syn::Pat, #full);
+impl ParseMetaItem for syn::Path {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        input.parse()
+    }
+}
+impl ToKeyString for syn::Path {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (i, seg) in self.segments.iter().enumerate() {
+            if i > 0 {
+                f.write_str("::")?;
+            }
+            seg.ident.fmt_key_string(f)?;
+            if !seg.arguments.is_empty() {
+                seg.arguments.to_token_stream().fmt_key_string(f)?;
+            }
+        }
+        Ok(())
+    }
+}
 impl_parse_meta_item_syn!(syn::PathSegment);
 impl_parse_meta_item_syn!(syn::ParenthesizedGenericArguments);
-impl_parse_meta_item_syn!(syn::Receiver);
-impl_parse_meta_item_syn!(syn::Signature);
+impl_parse_meta_item_syn!(syn::Receiver, #full);
+impl_parse_meta_item_syn!(syn::Signature, #full);
 impl_parse_meta_item_syn!(syn::TraitBound);
 impl_parse_meta_item_syn!(syn::Type);
 impl_parse_meta_item_syn!(syn::TypeArray);
@@ -918,7 +1408,7 @@ impl_parse_meta_item_syn!(syn::TypeSlice);
 impl_parse_meta_item_syn!(syn::TypeTraitObject);
 impl_parse_meta_item_syn!(syn::TypeTuple);
 impl_parse_meta_item_syn!(syn::TypeParamBound);
-impl_parse_meta_item_syn!(syn::UseTree);
+impl_parse_meta_item_syn!(syn::UseTree, #full);
 impl_parse_meta_item_syn!(syn::UnOp);
 impl_parse_meta_item_syn!(syn::Visibility);
 impl_parse_meta_item_syn!(syn::WherePredicate);
@@ -946,8 +1436,19 @@ impl ParseMetaItem for () {
     }
 }
 
+impl ToKeyString for () {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("()")
+    }
+    #[inline]
+    fn with_key_string<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        f("()")
+    }
+}
+
 macro_rules! impl_parse_meta_item_tuple {
-    ($len:literal: $($index:literal $param:tt $item:ident)+) => {
+    ($len:literal: $($index:tt $param:tt $item:ident)+) => {
         impl<$($param: ParseMetaItem,)+> ParseMetaItem for ($($param,)+) {
             #[inline]
             fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
@@ -969,25 +1470,43 @@ macro_rules! impl_parse_meta_item_tuple {
                 _mode: ParseMode,
                 _index: usize
             ) -> Result<Self> {
-                $(let mut $item = None;)+
-                parse_tuple_struct(inputs, $len, |stream, _, index| {
+                $(let mut $item = FieldStatus::None;)+
+                let errors = Errors::new();
+                errors.push_result(parse_tuple_struct(inputs, $len, |stream, _, index| {
                     match index {
-                        $($index => $item = Some($param::parse_meta_item(stream, ParseMode::Unnamed)?),)+
+                        $($index => $item.parse_unnamed_item(stream, &errors),)+
                         _ => unreachable!(),
                     }
                     Ok(())
-                })?;
-                $(let $item = match $item {
-                    Some(t) => t,
-                    None => return Err(syn::Error::new(
+                }));
+                $(if $item.is_none() {
+                    errors.push(
                         inputs_span(inputs),
-                        concat!("Expected tuple of length ", $len, ", got ", $index),
-                    )),
+                        format!("Expected tuple of length {}, got {}", $len, $index),
+                    );
+                    return errors.bail();
                 };)+
+                errors.check()?;
+                $(let $item = $item.unwrap_or_else(|| unreachable!());)+
                 Ok(($($item,)+))
             }
         }
+
+        impl<$($param: ToKeyString,)+> ToKeyString for ($($param,)+) {
+            #[inline]
+            fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_char('(')?;
+
+                $(
+                    impl_parse_meta_item_tuple!(@push_comma f, $index);
+                    self.$index.fmt_key_string(f)?;
+                )+
+                f.write_char(')')
+            }
+        }
     };
+    (@push_comma $f:ident, 0) => { };
+    (@push_comma $f:ident, $index:literal) => { $f.write_str(", ")?; };
 }
 
 impl_parse_meta_item_tuple!(1: 0 T0 t0);

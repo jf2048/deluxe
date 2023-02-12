@@ -84,7 +84,7 @@ impl<'v> Variant<'v> {
             return quote_mixed! {
                 #pre
                 if let #priv_::Option::Some(v) = errors.push_result(
-                    #crate_::ParseMetaItem::parse_meta_item_named(input, span).and_then(|v| {
+                    #crate_::ParseMetaItem::parse_meta_item_named(input, p, span).and_then(|v| {
                         #name = #priv_::FieldStatus::Some(v);
                         #post
                     })
@@ -256,8 +256,8 @@ impl<'v> Variant<'v> {
         variants: &[Self],
         crate_: &syn::Path,
         mode: TokenMode,
-        target: Option<&syn::Expr>,
-        and_thens: &[syn::Expr],
+        target: Option<&TokenStream>,
+        and_thens: &[TokenStream],
         allow_unknown_fields: bool,
     ) -> TokenStream {
         let priv_path: syn::Path = syn::parse_quote! { #crate_::____private };
@@ -390,7 +390,7 @@ impl<'v> Variant<'v> {
             if let Some(target) = target {
                 return quote_mixed! {
                     {
-                        value = #priv_::FieldStatus::Some(#target);
+                        value = #priv_::FieldStatus::Some((#target));
                     }
                 };
             }
@@ -431,14 +431,14 @@ impl<'v> Variant<'v> {
         quote_mixed! {
             let mut key: #priv_::Option<&'static #priv_::str> = #priv_::Option::None;
             let mut value = #priv_::FieldStatus::None;
-            #(let mut #paths_ident = #priv_::HashMap::<#priv_::String, #priv_::Span>::new();)*
+            #(let mut #paths_ident = #priv_::HashMap::<#priv_::SmallString<'static>, #priv_::Span>::new();)*
             let errors = #crate_::Errors::new();
             errors.push_result(#priv_::parse_helpers::parse_struct(#inputs_expr, |input, p, span| {
                 let inputs = [input];
                 let inputs = inputs.as_slice();
                 let cur = p.strip_prefix(prefix);
                 #(if let #priv_::Option::Some(cur) = cur {
-                    #paths_ident.insert(#priv_::ToOwned::to_owned(cur), span);
+                    #paths_ident.insert(<#priv_::SmallString as #priv_::From<_>>::from(cur).into_owned(), span);
                 })*
                 match cur {
                     #(#variant_matches)*
@@ -462,7 +462,7 @@ impl<'v> Variant<'v> {
             });)*
             #priv_::parse_helpers::skip_all(inputs);
             errors.check()?;
-            #crate_::Result::Ok(value.unwrap())
+            #crate_::Result::Ok(value.unwrap_or_else(|| #priv_::unreachable!()))
         }
     }
     pub fn to_flat_field_names_tokens(&self, crate_: &syn::Path) -> Vec<TokenStream> {
@@ -483,7 +483,7 @@ impl<'v> Variant<'v> {
                     };
                     let prefix = prefix
                         .as_ref()
-                        .map(parse_helpers::path_to_string)
+                        .map(parse_helpers::key_to_string)
                         .unwrap_or_default();
                     quote_mixed! { (#prefix, #names) }
                 }
@@ -527,7 +527,7 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                                 input,
                                 span,
                                 &errors,
-                                |input, span| {
+                                |input, _, span| {
                                     let mut iter = fields.iter().filter(|f| f.is_parsable());
                                     if let Some(first) = iter.next() {
                                         if first.flatten.as_ref().map(|f| f.value).unwrap_or(false)
@@ -542,7 +542,7 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                                                 "`transparent` variant field cannot be `append`",
                                             ));
                                         } else if iter.next().is_none() {
-                                            return <_>::parse_meta_item_named(input, span);
+                                            return <_>::parse_meta_item_named(input, path, span);
                                         }
                                     }
                                     Err(syn::Error::new(
@@ -575,8 +575,8 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                                 input,
                                 span,
                                 &errors,
-                                |input, span| {
-                                    let name = <_>::parse_meta_item_named(input, span)?;
+                                |input, _, span| {
+                                    let name = <_>::parse_meta_item_named(input, path, span)?;
                                     if variant.ident == name {
                                         Err(syn::Error::new(
                                             span,
@@ -595,7 +595,8 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                             );
                         }
                         "alias" => {
-                            match errors.push_result(<_>::parse_meta_item_named(input, span)) {
+                            match errors.push_result(<_>::parse_meta_item_named(input, path, span))
+                            {
                                 Some(alias) => {
                                     if variant.ident == alias {
                                         errors.push(span, "cannot alias variant to its own name");

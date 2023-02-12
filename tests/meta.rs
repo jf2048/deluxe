@@ -350,6 +350,14 @@ fn vec_field() {
         parse(q! { { idents = [hello world] } }).unwrap_err_string(),
         "expected `,`"
     );
+    ::std::assert_eq!(
+        parse(q! { { idents = [hello, 123, world] } }).unwrap_err_string(),
+        "expected ident"
+    );
+    ::std::assert_eq!(
+        parse(q! { { idents = [hello, 123, world, 456, moon] } }).unwrap_err_string(),
+        "expected ident, expected ident"
+    );
 }
 
 #[test]
@@ -1889,4 +1897,81 @@ fn and_then() {
         parse(q! { { values(a = 5, b = 6) } }).unwrap_err_string(),
         "sum of a and b must be below 10",
     );
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+struct FieldTransforms {
+    #[deluxe(map = |x: ::syn::Ident| ::std::string::ToString::to_string(&x))]
+    ident: ::std::string::String,
+    #[deluxe(map = |x: ::syn::Ident| ::std::string::ToString::to_string(&x))]
+    #[deluxe(map = |s| ::std::format!("prefix_{s}"))]
+    prefixed_ident: ::std::string::String,
+    #[deluxe(and_then = |u: u32| <u16 as ::std::convert::TryFrom<_>>::try_from(u)
+            .map_err(|_| ::syn::Error::new(::proc_macro2::Span::call_site(), "my_int too big")))]
+    my_int: u16,
+    #[deluxe(and_then = |u: u32| <u16 as ::std::convert::TryFrom<_>>::try_from(u)
+            .map_err(|_| ::syn::Error::new(::proc_macro2::Span::call_site(), "is_one too big")))]
+    #[deluxe(map = |u| u == 1)]
+    is_one: bool,
+}
+
+#[test]
+fn field_transforms() {
+    use ::std::prelude::v1::*;
+    let parse = parse_meta::<FieldTransforms>;
+
+    ::std::assert_eq!(
+        parse(q! { { ident = hello, prefixed_ident = world, my_int = 200, is_one = 1, } }).unwrap(),
+        FieldTransforms {
+            ident: String::from("hello"),
+            prefixed_ident: String::from("prefix_world"),
+            my_int: 200,
+            is_one: true
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { ident = goodbye, prefixed_ident = moon, my_int = 300, is_one = 123, } })
+            .unwrap(),
+        FieldTransforms {
+            ident: String::from("goodbye"),
+            prefixed_ident: String::from("prefix_moon"),
+            my_int: 300,
+            is_one: false
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { { ident = hello, prefixed_ident = world, my_int = 100000, is_one = 1, } })
+            .unwrap_err_string(),
+        "my_int too big",
+    );
+    ::std::assert_eq!(
+        parse(q! { { ident = hello, prefixed_ident = world, my_int = 200000, is_one = 100000, } })
+            .unwrap_err_string(),
+        "my_int too big, is_one too big",
+    );
+}
+
+#[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, ::deluxe::ParseMetaItem)]
+struct NoDebugInner {
+    _a: i32,
+    _b: ::std::string::String,
+}
+
+#[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, ::deluxe::ParseMetaItem)]
+struct NoDebug {
+    _a: i32,
+    _b: ::std::string::String,
+    _c: NoDebugInner,
+}
+
+#[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, ::deluxe::ParseMetaItem)]
+enum NoDebugEnum {
+    _A(NoDebug),
+    _B(NoDebugInner),
 }

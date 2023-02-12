@@ -336,7 +336,7 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
         Mode::Extract => Some(quote_mixed! { ? }),
     };
     let path_name_unwrap = attributes.first().map(|path| {
-        let path = deluxe_core::parse_helpers::path_to_string(path);
+        let path = deluxe_core::parse_helpers::key_to_string(path);
         quote_mixed! { .or(#priv_::Option::Some(#path)) }
     });
 

@@ -115,6 +115,28 @@ impl Errors {
             Ok(())
         }
     }
+    /// Returns the inner if the error list has errors.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the error list is empty.
+    #[inline]
+    pub fn unwrap_err(self) -> Error {
+        if let Some(err) = self.errors.take() {
+            err
+        } else {
+            panic!("expected Errors to not be empty");
+        }
+    }
+    /// Returns a new `Err` if the error list has errors.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the error list is empty.
+    #[inline]
+    pub fn bail<T>(self) -> Result<T> {
+        Err(self.unwrap_err())
+    }
     /// Converts the error list into a token stream containing [`std::compile_error`] invocations.
     ///
     /// The errors are generated with [`Error::into_compile_error`](syn::Error::into_compile_error).
@@ -134,6 +156,12 @@ impl Errors {
             .take()
             .into_iter()
             .map(|e| e.into_compile_error())
+    }
+    /// Creates a token stream containing the current set of errors and `item`.
+    pub fn output_with<Q: quote::ToTokens>(self, item: Q) -> TokenStream {
+        let mut tokens = item.into_token_stream();
+        quote::ToTokens::to_tokens(&self, &mut tokens);
+        tokens
     }
 }
 
@@ -312,8 +340,8 @@ impl<T: ParseMetaItem> ParseMetaItem for SpannedValue<T> {
         })
     }
     #[inline]
-    fn parse_meta_item_named(input: ParseStream, span: Span) -> Result<Self> {
-        let value = T::parse_meta_item_named(input, span)?;
+    fn parse_meta_item_named(input: ParseStream, name: &str, span: Span) -> Result<Self> {
+        let value = T::parse_meta_item_named(input, name, span)?;
         let span = input.span().join(span).unwrap_or(span);
         Ok(Self { value, span })
     }
@@ -514,7 +542,7 @@ impl ParseMetaItem for Flag {
         Ok(Self(Some(span)))
     }
     #[inline]
-    fn parse_meta_item_named(input: ParseStream, span: Span) -> Result<Self> {
+    fn parse_meta_item_named(input: ParseStream, _name: &str, span: Span) -> Result<Self> {
         if input.is_empty() || input.peek(syn::Token![,]) {
             Self::parse_meta_item_flag(span)
         } else {
