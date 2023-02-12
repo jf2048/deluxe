@@ -115,6 +115,28 @@ impl Errors {
             Ok(())
         }
     }
+    /// Returns the inner if the error list has errors.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the error list is empty.
+    #[inline]
+    pub fn unwrap_err(self) -> Error {
+        if let Some(err) = self.errors.take() {
+            err
+        } else {
+            panic!("expected Errors to not be empty");
+        }
+    }
+    /// Returns a new `Err` if the error list has errors.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the error list is empty.
+    #[inline]
+    pub fn bail<T>(self) -> Result<T> {
+        Err(self.unwrap_err())
+    }
     /// Converts the error list into a token stream containing [`std::compile_error`] invocations.
     ///
     /// The errors are generated with [`Error::into_compile_error`](syn::Error::into_compile_error).

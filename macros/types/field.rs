@@ -687,7 +687,7 @@ impl<'f> Field<'f> {
             (!matches!(target, ParseTarget::Var(_))).then(|| {
                 let name = &names[i];
                 quote_mixed! {
-                    let #name = #name.unwrap();
+                    let #name = #name.unwrap_or_else(|| #priv_::unreachable!());
                 }
             })
         });

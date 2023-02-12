@@ -350,6 +350,14 @@ fn vec_field() {
         parse(q! { { idents = [hello world] } }).unwrap_err_string(),
         "expected `,`"
     );
+    ::std::assert_eq!(
+        parse(q! { { idents = [hello, 123, world] } }).unwrap_err_string(),
+        "expected ident"
+    );
+    ::std::assert_eq!(
+        parse(q! { { idents = [hello, 123, world, 456, moon] } }).unwrap_err_string(),
+        "expected ident, expected ident"
+    );
 }
 
 #[test]
@@ -1947,4 +1955,23 @@ fn field_transforms() {
             .unwrap_err_string(),
         "my_int too big, is_one too big",
     );
+}
+
+#[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, ::deluxe::ParseMetaItem)]
+struct NoDebugInner {
+    _a: i32,
+    _b: ::std::string::String,
+}
+
+#[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, ::deluxe::ParseMetaItem)]
+struct NoDebug {
+    _a: i32,
+    _b: ::std::string::String,
+    _c: NoDebugInner,
+}
+
+#[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, ::deluxe::ParseMetaItem)]
+enum NoDebugEnum {
+    _A(NoDebug),
+    _B(NoDebugInner),
 }

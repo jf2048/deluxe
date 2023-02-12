@@ -8,7 +8,7 @@ use std::{
     hash::Hash,
 };
 use syn::{
-    parse::{Nothing, Parse, ParseBuffer, ParseStream},
+    parse::{Nothing, Parse, ParseBuffer, ParseStream, Peek},
     punctuated::Punctuated,
     Token,
 };
@@ -480,21 +480,31 @@ impl<T: ParseMetaItem, const N: usize> ParseMetaFlatUnnamed for [T; N] {
         index: usize,
     ) -> Result<Self> {
         let mut a = arrayvec::ArrayVec::<T, N>::new();
-        parse_tuple_struct(inputs, N, |stream, _, _| {
-            a.push(T::parse_meta_item(stream, ParseMode::Unnamed)?);
+        let errors = Errors::new();
+        let mut failed = 0;
+        errors.push_result(parse_tuple_struct(inputs, N, |stream, _, _| {
+            match errors.push_result(T::parse_meta_item(stream, ParseMode::Unnamed)) {
+                Some(v) => a.push(v),
+                None => {
+                    failed += 1;
+                    skip_meta_item(stream);
+                }
+            }
             Ok(())
-        })?;
-        a.into_inner().map_err(|a| {
-            syn::Error::new(
+        }));
+        if a.len() + failed != N {
+            errors.push(
                 inputs_span(inputs),
                 format!(
                     "Expected array at index {} of length {}, got {}",
                     index,
                     N,
-                    a.len()
+                    a.len() + failed,
                 ),
-            )
-        })
+            );
+        }
+        errors.check()?;
+        Ok(a.into_inner().unwrap_or_else(|_| unreachable!()))
     }
 }
 
@@ -535,19 +545,23 @@ macro_rules! impl_parse_meta_item_collection {
                 _index: usize
             ) -> Result<Self> {
                 let mut $ident = Self::new();
+                let errors = Errors::new();
                 for input in inputs {
                     let input = input.borrow();
                     loop {
                         if input.is_empty() {
                             break;
                         }
-                        let $item = $param::parse_meta_item(input, ParseMode::Unnamed)?;
-                        $push;
+                        match errors.push_result($param::parse_meta_item(input, ParseMode::Unnamed)) {
+                            Some($item) => $push,
+                            None => skip_meta_item(input),
+                        }
                         if !input.is_empty() {
                             input.parse::<Token![,]>()?;
                         }
                     }
                 }
+                errors.check()?;
                 Ok($ident)
             }
         }
@@ -563,15 +577,17 @@ macro_rules! impl_parse_meta_item_collection {
                 let mut $ident = Self::new();
                 let errors = Errors::new();
                 let paths = paths.into_iter();
-                parse_struct(inputs, |input, p, pspan| {
+                errors.push_result(parse_struct(inputs, |input, p, pspan| {
                     if paths.clone().any(|path| path.as_ref() == p) {
-                        let $item = <_>::parse_meta_item_named(input, p, pspan)?;
-                        $push;
+                        match errors.push_result(<_>::parse_meta_item_named(input, p, pspan)) {
+                            Some($item) => $push,
+                            None => skip_meta_item(input),
+                        }
                     } else {
                         skip_meta_item(input);
                     }
                     Ok(())
-                })?;
+                }));
                 errors.check()?;
                 Ok($ident)
             }
@@ -624,10 +640,12 @@ macro_rules! impl_parse_meta_item_set {
                             break;
                         }
                         let span = input.span();
-                        let $item = $param::parse_meta_item(input, ParseMode::Unnamed)?;
-                        let span = input.span().join(span).unwrap();
-                        if !$push {
-                            errors.push(span, "Duplicate key");
+                        match errors.push_result($param::parse_meta_item(input, ParseMode::Unnamed)) {
+                            Some($item) => if !$push {
+                                let span = input.span().join(span).unwrap_or(span);
+                                errors.push(span, "Duplicate key");
+                            },
+                            None => skip_meta_item(input),
                         }
                         if !input.is_empty() {
                             input.parse::<Token![,]>()?;
@@ -656,10 +674,13 @@ macro_rules! impl_parse_meta_item_set {
                 parse_struct(inputs, |input, p, pspan| {
                     if paths.clone().any(|path| path.as_ref() == p) {
                         let span = input.span();
-                        let $item = <_>::parse_meta_item_named(input, p, pspan)?;
-                        let span = input.span().join(span).unwrap();
-                        if !$push {
-                            errors.push(span, "Duplicate key");
+                        let $item = <_>::parse_meta_item_named(input, p, pspan);
+                        let span = input.span().join(span).unwrap_or(span);
+                        match errors.push_result($item) {
+                            Some($item) => if !$push {
+                                errors.push(span, "Duplicate key");
+                            },
+                            None => skip_meta_item(input),
                         }
                     } else {
                         skip_meta_item(input);
@@ -730,12 +751,15 @@ macro_rules! impl_parse_meta_item_map {
                         }
                         let start = input.span();
                         let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
-                        let span = input.span().join(start).unwrap();
-                        let $value = $key.with_key_string(|ks| {
+                        let span = input.span().join(start).unwrap_or(start);
+                        let $value = errors.push_result($key.with_key_string(|ks| {
                             <_>::parse_meta_item_named(input, &ks, start)
-                        })?;
-                        if !$push {
-                            errors.push(span, "Duplicate key");
+                        }));
+                        match $value {
+                            Some($value) => if !$push {
+                                errors.push(span, "Duplicate key");
+                            }
+                            None => skip_meta_item(input),
                         }
                         if !input.is_empty() {
                             input.parse::<Token![,]>()?;
@@ -766,15 +790,15 @@ macro_rules! impl_parse_meta_item_map {
                         }
                         let start = input.span();
                         let $key = $kp::parse_meta_item(input, ParseMode::Unnamed)?;
-                        let span = input.span().join(start).unwrap();
-                        let $value = $key.with_key_string(|ks| {
+                        let span = input.span().join(start).unwrap_or(start);
+                        let $value = errors.push_result($key.with_key_string(|ks| {
                             if exclude.contains(&ks) {
                                 skip_meta_item(input);
                                 Ok::<_, crate::Error>(None)
                             } else {
                                 Ok(Some(<_>::parse_meta_item_named(input, &ks, start)?))
                             }
-                        })?;
+                        })).flatten();
                         if let Some($value) = $value {
                             if !$push {
                                 errors.push(span, "Duplicate key");
@@ -1164,7 +1188,7 @@ impl ParseMetaItem for proc_macro::Ident {
 
 impl_fmt_key_string_display!(proc_macro::Ident, #proc_macro);
 
-impl<T: ParseMetaItem, P: Parse + Default> ParseMetaItem for Punctuated<T, P> {
+impl<T: ParseMetaItem, P: Parse + Peek + Default> ParseMetaItem for Punctuated<T, P> {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
         Bracket::parse_delimited_meta_item(input, ParseMode::Unnamed)
@@ -1178,7 +1202,7 @@ impl<T: ParseMetaItem, P: Parse + Default> ParseMetaItem for Punctuated<T, P> {
     }
 }
 
-impl<T: ParseMetaItem, P: Parse + Default> ParseMetaFlatUnnamed for Punctuated<T, P> {
+impl<T: ParseMetaItem, P: Parse + Peek + Default> ParseMetaFlatUnnamed for Punctuated<T, P> {
     #[inline]
     fn field_count() -> Option<usize> {
         None
@@ -1189,18 +1213,34 @@ impl<T: ParseMetaItem, P: Parse + Default> ParseMetaFlatUnnamed for Punctuated<T
         _index: usize,
     ) -> Result<Self> {
         let mut p = Punctuated::new();
+        let errors = Errors::new();
         for input in inputs {
             let input = input.borrow();
             loop {
                 if input.is_empty() {
                     break;
                 }
-                p.push(T::parse_meta_item(input, ParseMode::Unnamed)?);
-                if !input.is_empty() {
-                    input.parse::<P>()?;
+                match errors.push_result(T::parse_meta_item(input, ParseMode::Unnamed)) {
+                    Some(v) => {
+                        p.push(v);
+                        if !input.is_empty() && errors.push_result(input.parse::<P>()).is_some() {
+                            break;
+                        }
+                    }
+                    None => {
+                        // skip tokens until we find a P
+                        while !input.is_empty() {
+                            if input.peek(P::default()) {
+                                input.parse::<P>()?;
+                                break;
+                            }
+                            input.step(|c| Ok(((), c.token_tree().map(|(_, c)| c).unwrap())))?;
+                        }
+                    }
                 }
             }
         }
+        errors.check()?;
         Ok(p)
     }
 }
@@ -1430,21 +1470,24 @@ macro_rules! impl_parse_meta_item_tuple {
                 _mode: ParseMode,
                 _index: usize
             ) -> Result<Self> {
-                $(let mut $item = None;)+
-                parse_tuple_struct(inputs, $len, |stream, _, index| {
+                $(let mut $item = FieldStatus::None;)+
+                let errors = Errors::new();
+                errors.push_result(parse_tuple_struct(inputs, $len, |stream, _, index| {
                     match index {
-                        $($index => $item = Some($param::parse_meta_item(stream, ParseMode::Unnamed)?),)+
+                        $($index => $item.parse_unnamed_item(stream, &errors),)+
                         _ => unreachable!(),
                     }
                     Ok(())
-                })?;
-                $(let $item = match $item {
-                    Some(t) => t,
-                    None => return Err(syn::Error::new(
+                }));
+                $(if $item.is_none() {
+                    errors.push(
                         inputs_span(inputs),
-                        concat!("Expected tuple of length ", $len, ", got ", $index),
-                    )),
+                        format!("Expected tuple of length {}, got {}", $len, $index),
+                    );
+                    return errors.bail();
                 };)+
+                errors.check()?;
+                $(let $item = $item.unwrap_or_else(|| unreachable!());)+
                 Ok(($($item,)+))
             }
         }

@@ -462,7 +462,7 @@ impl<'v> Variant<'v> {
             });)*
             #priv_::parse_helpers::skip_all(inputs);
             errors.check()?;
-            #crate_::Result::Ok(value.unwrap())
+            #crate_::Result::Ok(value.unwrap_or_else(|| #priv_::unreachable!()))
         }
     }
     pub fn to_flat_field_names_tokens(&self, crate_: &syn::Path) -> Vec<TokenStream> {
