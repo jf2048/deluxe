@@ -43,7 +43,7 @@ fn multi_attributes() {
     let expr: ::syn::Expr = ::syn::parse2(q! { #[single] true }).unwrap();
     ::std::assert_eq!(
         ::deluxe::parse_attributes::<::syn::Expr, SingleAttribute>(&expr).unwrap_err_string(),
-        "unexpected end of input, expected parentheses"
+        "missing required field 0 on #[single]"
     );
 
     let expr: ::syn::Expr = ::syn::parse2(q! { true }).unwrap();
@@ -55,7 +55,7 @@ fn multi_attributes() {
     let expr: ::syn::Expr = ::syn::parse2(q! { #[single] true }).unwrap();
     ::std::assert_eq!(
         ::deluxe::parse_attributes::<::syn::Expr, SingleAttributeNamed>(&expr).unwrap_err_string(),
-        "unexpected end of input, expected parentheses"
+        "missing required field #[single(c)]"
     );
 
     let expr: ::syn::Expr = ::syn::parse2(q! { #[multi1('a')] true }).unwrap();
@@ -89,7 +89,7 @@ fn multi_attributes() {
     let expr = ::syn::parse2(q! { #[multi2] true }).unwrap();
     ::std::assert_eq!(
         ::deluxe::parse_attributes::<::syn::Expr, MultiAttributes>(&expr).unwrap_err_string(),
-        "unexpected end of input, expected parentheses"
+        "missing required field 0 on #[multi2]"
     );
 
     let expr = ::syn::parse2(q! { #[multi3('c')] true }).unwrap();
