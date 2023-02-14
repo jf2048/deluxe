@@ -1957,6 +1957,32 @@ fn field_transforms() {
     );
 }
 
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+)]
+struct RawIdentKeys {
+    r#struct: ::syn::Type,
+    r#trait: ::syn::Type,
+}
+
+#[test]
+fn raw_ident_keys() {
+    use ::std::prelude::v1::*;
+    let parse = parse_meta::<RawIdentKeys>;
+
+    ::std::assert_eq!(
+        parse(q! { { struct = A, trait = B } }).unwrap(),
+        RawIdentKeys {
+            r#struct: ::syn::parse_quote! { A },
+            r#trait: ::syn::parse_quote! { B },
+        }
+    );
+}
+
 #[derive(::deluxe::ParseAttributes, ::deluxe::ExtractAttributes, ::deluxe::ParseMetaItem)]
 struct NoDebugInner {
     _a: i32,

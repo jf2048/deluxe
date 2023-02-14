@@ -1187,7 +1187,7 @@ impl<'f> ParseAttributes<'f, syn::Field> for Field<'f> {
                 deluxe_core::only_one!("", &errors, flatten, ("alias", alias_span.as_ref()));
                 if rename.is_none() && !flatten.as_ref().map(|f| f.value).unwrap_or(false) {
                     if let Some(ident) = field.ident.as_ref() {
-                        idents.insert(0, ident.clone());
+                        idents.insert(0, syn::ext::IdentExt::unraw(ident));
                     }
                 }
                 errors.check()?;

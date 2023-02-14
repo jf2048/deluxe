@@ -633,8 +633,11 @@ impl<'v> ParseAttributes<'v, syn::Variant> for Variant<'v> {
                 deluxe_core::only_one!("", &errors, flatten, rename);
                 deluxe_core::only_one!("", &errors, flatten, ("alias", alias_span.as_ref()));
                 if rename.is_none() && !flatten.map(|v| *v).unwrap_or(false) {
-                    let ident =
-                        heck::ToSnakeCase::to_snake_case(variant.ident.to_string().as_str());
+                    let ident = heck::ToSnakeCase::to_snake_case(
+                        syn::ext::IdentExt::unraw(&variant.ident)
+                            .to_string()
+                            .as_str(),
+                    );
                     idents.insert(0, syn::Ident::new(&ident, variant.ident.span()));
                 }
                 let fields = {
