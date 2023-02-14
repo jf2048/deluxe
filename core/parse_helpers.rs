@@ -700,9 +700,13 @@ where
         if let Some((tokens, name, span)) = iter.next() {
             let tokens = tokens.into_token_stream();
             parse_tokens(tokens, |stream| {
-                let content = Paren::parse_delimited(stream)?;
                 let mut buffers: Vec<ParseBuffer> = buffers; // move to shrink the lifetime
-                buffers.push(content);
+                if stream.is_empty() {
+                    buffers.push(stream.fork());
+                } else {
+                    let content = Paren::parse_delimited(stream)?;
+                    buffers.push(content);
+                }
                 paths.push((name, span));
                 parse_next(iter, buffers, paths, func)
             })
