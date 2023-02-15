@@ -612,8 +612,8 @@ pub mod ____private {
 
 pub use deluxe_core::{
     define_with_collection, define_with_map, define_with_optional, parse_named_meta_item_with,
-    validations, with, Error, Errors, ExtractAttributes, Flag, HasAttributes, ParseAttributes,
-    ParseMetaItem, ParseMode, Result, SpannedValue,
+    with, Error, Errors, ExtractAttributes, Flag, HasAttributes, ParseAttributes, ParseMetaItem,
+    ParseMode, Result, SpannedValue,
 };
 #[doc(hidden)]
 pub use deluxe_core::{
@@ -621,6 +621,12 @@ pub use deluxe_core::{
     ToKeyString,
 };
 pub use deluxe_macros::*;
+
+/// Additional helper functions for validating after parsing.
+pub mod validations {
+    pub use deluxe_core::validations::*;
+    pub use deluxe_core::only_one;
+}
 
 #[cfg(feature = "proc-macro")]
 extern crate proc_macro;

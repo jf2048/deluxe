@@ -41,7 +41,7 @@ pub use {
         collections::HashMap,
         fmt,
         hash::{Hash, Hasher},
-        ops, primitive,
+        ops, primitive, stringify,
     },
     AsRef, Clone, Default, Eq, IntoIterator, Iterator, Option, PartialEq,
 };
