@@ -625,7 +625,7 @@ pub use deluxe_macros::*;
 /// Additional helper functions for validating after parsing.
 pub mod validations {
     pub use deluxe_core::validations::*;
-    pub use deluxe_core::only_one;
+    pub use deluxe_core::{all_or_none, only_one};
 }
 
 #[cfg(feature = "proc-macro")]
