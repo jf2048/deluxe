@@ -103,17 +103,25 @@ impl Errors {
             }
         }
     }
+    /// Returns `Err` if the list has errors, or `Ok(value)` if the list is empty.
+    ///
+    /// If the list has any errors, returns [`Err`] containing one [`Error`] with all of the errors
+    /// combined using [`Error::combine`](syn::Error::combine).
+    #[inline]
+    pub fn into_result<T>(self, value: T) -> Result<T> {
+        if let Some(err) = self.errors.take() {
+            Err(err)
+        } else {
+            Ok(value)
+        }
+    }
     /// Checks if the error list is empty.
     ///
     /// If the list has any errors, returns [`Err`] containing one [`Error`] with all of the errors
     /// combined using [`Error::combine`](syn::Error::combine). Otherwise, returns [`Ok`].
     #[inline]
     pub fn check(self) -> Result<()> {
-        if let Some(err) = self.errors.take() {
-            Err(err)
-        } else {
-            Ok(())
-        }
+        self.into_result(())
     }
     /// Returns the inner if the error list has errors.
     ///

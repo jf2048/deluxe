@@ -1864,6 +1864,52 @@ impl AndThensEnum {
     }
 }
 
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+    Default,
+)]
+#[deluxe(and_then = Self::validate)]
+struct OnlyOne {
+    a: ::std::option::Option<::std::string::String>,
+    b: ::std::option::Option<::std::string::String>,
+}
+
+impl OnlyOne {
+    fn validate(self) -> ::deluxe::Result<Self> {
+        let errors = ::deluxe::Errors::new();
+        let Self { a, b } = &self;
+        ::deluxe::validations::only_one!("", &errors, a, b);
+        errors.into_result(self)
+    }
+}
+
+#[derive(
+    ::deluxe::ParseAttributes,
+    ::deluxe::ExtractAttributes,
+    ::deluxe::ParseMetaItem,
+    PartialEq,
+    Debug,
+    Default,
+)]
+#[deluxe(and_then = Self::validate)]
+struct AllOrNone {
+    a: ::std::option::Option<::std::string::String>,
+    b: ::std::option::Option<::std::string::String>,
+}
+
+impl AllOrNone {
+    fn validate(self) -> ::deluxe::Result<Self> {
+        let errors = ::deluxe::Errors::new();
+        let Self { a, b } = &self;
+        ::deluxe::validations::all_or_none!("", &errors, a, b);
+        errors.into_result(self)
+    }
+}
+
 #[test]
 fn and_then() {
     use ::std::prelude::v1::*;
@@ -1896,6 +1942,46 @@ fn and_then() {
     ::std::assert_eq!(
         parse(q! { { values(a = 5, b = 6) } }).unwrap_err_string(),
         "sum of a and b must be below 10",
+    );
+
+    let parse = parse_meta::<OnlyOne>;
+    ::std::assert_eq!(parse(q! { {} }).unwrap(), OnlyOne::default());
+    ::std::assert_eq!(
+        parse(q! { {a("a")} }).unwrap(),
+        OnlyOne {
+            a: Some("a".into()),
+            b: None
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { {b("b")} }).unwrap(),
+        OnlyOne {
+            a: None,
+            b: Some("b".into()),
+        }
+    );
+    // error appears twice, once on each attribute
+    ::std::assert_eq!(
+        parse(q! { {a("a"), b("b")} }).unwrap_err_string(),
+        "only one of `a`, `b` is allowed, only one of `a`, `b` is allowed",
+    );
+
+    let parse = parse_meta::<AllOrNone>;
+    ::std::assert_eq!(parse(q! { {} }).unwrap(), AllOrNone::default());
+    ::std::assert_eq!(
+        parse(q! { {a("a"), b("b")} }).unwrap(),
+        AllOrNone {
+            a: Some("a".into()),
+            b: Some("b".into()),
+        }
+    );
+    ::std::assert_eq!(
+        parse(q! { {a("a")} }).unwrap_err_string(),
+        "`b` must also be set in order to use `a`",
+    );
+    ::std::assert_eq!(
+        parse(q! { {b("b")} }).unwrap_err_string(),
+        "`a` must also be set in order to use `b`",
     );
 }
 
