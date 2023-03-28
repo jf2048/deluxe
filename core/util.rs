@@ -1,4 +1,5 @@
 use proc_macro2::{Span, TokenStream};
+use quote::TokenStreamExt;
 use std::{
     borrow::Borrow,
     cell::RefCell,
@@ -6,10 +7,7 @@ use std::{
     hash::Hash,
     ops::{Deref, DerefMut},
 };
-use syn::{
-    parse::{ParseBuffer, ParseStream},
-    spanned::Spanned,
-};
+use syn::parse::{ParseBuffer, ParseStream};
 
 use crate::{parse_helpers::inputs_span, parse_meta::*};
 
@@ -313,10 +311,12 @@ impl<T: Hash> Hash for SpannedValue<T> {
     }
 }
 
-impl<T> Spanned for SpannedValue<T> {
+impl<T> quote::ToTokens for SpannedValue<T> {
     #[inline]
-    fn span(&self) -> Span {
-        self.span
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let mut group = proc_macro2::Group::new(proc_macro2::Delimiter::None, Default::default());
+        group.set_span(self.span);
+        tokens.append(group);
     }
 }
 
@@ -523,10 +523,13 @@ impl PartialEq<Flag> for bool {
     }
 }
 
-impl Spanned for Flag {
+impl quote::ToTokens for Flag {
     #[inline]
-    fn span(&self) -> Span {
-        self.0.unwrap_or_else(Span::call_site)
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        tokens.append(proc_macro2::Ident::new(
+            self.0.map(|_| "true").unwrap_or("false"),
+            self.0.unwrap_or_else(Span::call_site),
+        ));
     }
 }
 

@@ -3,6 +3,7 @@
 pub use crate::small_string::SmallString;
 use crate::{Error, Errors, ParseMetaItem, ParseMode, Result, ToKeyString};
 use proc_macro2::{Span, TokenStream, TokenTree};
+use quote::ToTokens;
 use std::{
     borrow::{Borrow, Cow},
     collections::HashMap,
@@ -927,19 +928,34 @@ pub fn check_unknown_attribute(path: &str, span: Span, fields: &[&str], errors: 
     false
 }
 
-/// Returns an iterator of pairs of [`TokenStream`](proc_macro2::TokenStream) references and the
+/// Returns an iterator of pairs of [`TokenStream`](proc_macro2::TokenStream)s and the
 /// corresponding path [`Span`](proc_macro2::Span) from a matched
 /// [`ParseAttributes`](crate::ParseAttributes).
 #[inline]
 pub fn ref_tokens<'t, P, T>(
     input: &'t T,
-) -> impl Iterator<Item = (&TokenStream, SmallString<'static>, Span)>
+) -> impl Iterator<Item = (TokenStream, SmallString<'static>, Span)> + 't
 where
     P: crate::ParseAttributes<'t, T>,
     T: crate::HasAttributes,
 {
     T::attrs(input).iter().filter_map(|a| {
-        P::path_matches(&a.path).then(|| (&a.tokens, key_to_string(&a.path), a.path.span()))
+        P::path_matches(a.path()).then(|| {
+            let value = match &a.meta {
+                syn::Meta::Path(_) => Default::default(),
+                syn::Meta::List(list) => proc_macro2::TokenTree::Group(proc_macro2::Group::new(
+                    match list.delimiter {
+                        syn::MacroDelimiter::Paren(_) => proc_macro2::Delimiter::Parenthesis,
+                        syn::MacroDelimiter::Brace(_) => proc_macro2::Delimiter::Brace,
+                        syn::MacroDelimiter::Bracket(_) => proc_macro2::Delimiter::Bracket,
+                    },
+                    list.tokens.clone(),
+                ))
+                .into(),
+                syn::Meta::NameValue(nv) => nv.value.to_token_stream(),
+            };
+            (value, key_to_string(a.path()), a.path().span())
+        })
     })
 }
 
@@ -960,9 +976,24 @@ where
     let mut tokens = Vec::new();
     let mut index = 0;
     while index < attrs.len() {
-        if E::path_matches(&attrs[index].path) {
+        if E::path_matches(attrs[index].path()) {
             let attr = attrs.remove(index);
-            tokens.push((attr.tokens, key_to_string(&attr.path), attr.path.span()));
+            let span = attr.path().span();
+            let key = key_to_string(attr.path());
+            let value = match attr.meta {
+                syn::Meta::Path(_) => Default::default(),
+                syn::Meta::List(list) => proc_macro2::TokenTree::Group(proc_macro2::Group::new(
+                    match list.delimiter {
+                        syn::MacroDelimiter::Paren(_) => proc_macro2::Delimiter::Parenthesis,
+                        syn::MacroDelimiter::Brace(_) => proc_macro2::Delimiter::Brace,
+                        syn::MacroDelimiter::Bracket(_) => proc_macro2::Delimiter::Bracket,
+                    },
+                    list.tokens,
+                ))
+                .into(),
+                syn::Meta::NameValue(nv) => nv.value.into_token_stream(),
+            };
+            tokens.push((value, key, span));
         } else {
             index += 1;
         }

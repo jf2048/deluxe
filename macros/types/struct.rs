@@ -20,9 +20,10 @@ pub struct StructTransparent {
     pub rest: Option<bool>,
 }
 
-impl Spanned for StructTransparent {
-    fn span(&self) -> Span {
-        self.span
+impl quote::ToTokens for StructTransparent {
+    #[inline]
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        syn::LitBool::new(self.value, self.span).to_tokens(tokens);
     }
 }
 

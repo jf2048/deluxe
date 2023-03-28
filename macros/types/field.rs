@@ -3,7 +3,7 @@ use deluxe_core::{
     ParseAttributes, ParseMetaItem, ParseMode, Result, SpannedValue,
 };
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, quote_spanned};
+use quote::{quote, quote_spanned, TokenStreamExt};
 use std::borrow::{Borrow, Cow};
 use syn::{
     parse::{ParseBuffer, ParseStream},
@@ -44,12 +44,12 @@ impl ParseMetaItem for FieldDefault {
     }
 }
 
-impl Spanned for FieldDefault {
+impl quote::ToTokens for FieldDefault {
     #[inline]
-    fn span(&self) -> Span {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
         match self {
-            Self::Default(span) => *span,
-            Self::Expr(expr) => expr.span(),
+            Self::Default(span) => tokens.append_all(quote_spanned!(*span => Default::default())),
+            Self::Expr(expr) => tokens.append_all(expr.clone()),
         }
     }
 }
@@ -61,9 +61,10 @@ pub struct FieldFlatten {
     pub prefix: Option<syn::Path>,
 }
 
-impl Spanned for FieldFlatten {
-    fn span(&self) -> Span {
-        self.span
+impl quote::ToTokens for FieldFlatten {
+    #[inline]
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        syn::LitBool::new(self.value, self.span).to_tokens(tokens);
     }
 }
 
@@ -131,9 +132,10 @@ pub struct FieldContainer {
     pub ty: Option<syn::Type>,
 }
 
-impl Spanned for FieldContainer {
-    fn span(&self) -> Span {
-        self.span
+impl quote::ToTokens for FieldContainer {
+    #[inline]
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        syn::LitBool::new(self.value, self.span).to_tokens(tokens);
     }
 }
 

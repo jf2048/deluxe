@@ -19,6 +19,6 @@ proc-macro = ["syn/proc-macro"]
 [dependencies]
 arrayvec = "0.7.2"
 proc-macro2 = "1.0.38"
-quote = "1.0.18"
+quote = "1.0.25"
 strsim = "0.10.0"
-syn = { version = "1.0.96", features = ["clone-impls", "derive", "extra-traits", "parsing", "printing"], default-features = false }
+syn = { version = "2.0.10", features = ["clone-impls", "derive", "extra-traits", "parsing", "printing"], default-features = false }

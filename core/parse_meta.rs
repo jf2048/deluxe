@@ -1326,7 +1326,6 @@ impl_parse_meta_item_syn!(syn::AngleBracketedGenericArguments);
 impl_parse_meta_item_syn!(syn::BareFnArg);
 impl_parse_meta_item_syn!(syn::BoundLifetimes);
 impl_parse_meta_item_syn!(syn::BinOp);
-impl_parse_meta_paren_item_syn!(syn::Binding);
 impl_parse_meta_item_syn!(syn::Expr, #full);
 impl_parse_meta_item_syn!(syn::ExprArray, #full);
 impl_parse_meta_paren_item_syn!(syn::ExprAssign, #full);
@@ -1341,7 +1340,6 @@ impl_parse_meta_item_syn!(syn::ExprPath, #full);
 impl_parse_meta_item_syn!(syn::ExprRange, #full);
 impl_parse_meta_item_syn!(syn::ExprRepeat, #full);
 impl_parse_meta_item_syn!(syn::ExprTuple, #full);
-impl_parse_meta_item_syn!(syn::ExprType, #full);
 impl_parse_meta_item_syn!(syn::FnArg, #full);
 impl_parse_meta_item_syn!(syn::GenericParam);
 impl ParseMetaItem for syn::Ident {
@@ -1357,7 +1355,7 @@ impl ToKeyString for syn::Ident {
     }
 }
 impl_parse_meta_item_syn!(syn::Lifetime);
-impl_parse_meta_item_syn!(syn::LifetimeDef);
+impl_parse_meta_item_syn!(syn::LifetimeParam);
 impl_parse_meta_item_syn!(syn::Lit);
 impl_parse_meta_item_syn!(syn::LitStr);
 impl_parse_meta_item_syn!(syn::LitByteStr);
@@ -1369,8 +1367,22 @@ impl_parse_meta_item_syn!(syn::LitBool);
 impl_parse_meta_item_syn!(syn::MetaList);
 impl_parse_meta_paren_item_syn!(syn::Meta);
 impl_parse_meta_paren_item_syn!(syn::MetaNameValue);
-impl_parse_meta_paren_item_syn!(syn::NestedMeta);
-impl_parse_meta_item_syn!(syn::Pat, #full);
+#[cfg(feature = "full")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
+impl ParseMetaItem for syn::Pat {
+    #[inline]
+    fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
+        syn::Pat::parse_single(input)
+    }
+}
+#[cfg(feature = "full")]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "full")))]
+impl ToKeyString for syn::Pat {
+    #[inline]
+    fn fmt_key_string(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.to_token_stream().fmt_key_string(f)
+    }
+}
 impl ParseMetaItem for syn::Path {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
