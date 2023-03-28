@@ -1,6 +1,6 @@
 [package]
 name = "deluxe-core"
-version = "0.4.3"
+version = "0.5.0"
 edition = "2021"
 description = "Core traits and helpers for Deluxe procedural macro attribute parser"
 license = "MIT"
