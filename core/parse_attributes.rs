@@ -123,22 +123,22 @@ impl HasAttributes for syn::Expr {
         match self {
             syn::Expr::Array(expr) => &expr.attrs,
             syn::Expr::Assign(expr) => &expr.attrs,
-            syn::Expr::AssignOp(expr) => &expr.attrs,
             syn::Expr::Async(expr) => &expr.attrs,
             syn::Expr::Await(expr) => &expr.attrs,
             syn::Expr::Binary(expr) => &expr.attrs,
             syn::Expr::Block(expr) => &expr.attrs,
-            syn::Expr::Box(expr) => &expr.attrs,
             syn::Expr::Break(expr) => &expr.attrs,
             syn::Expr::Call(expr) => &expr.attrs,
             syn::Expr::Cast(expr) => &expr.attrs,
             syn::Expr::Closure(expr) => &expr.attrs,
+            syn::Expr::Const(expr) => &expr.attrs,
             syn::Expr::Continue(expr) => &expr.attrs,
             syn::Expr::Field(expr) => &expr.attrs,
             syn::Expr::ForLoop(expr) => &expr.attrs,
             syn::Expr::Group(expr) => &expr.attrs,
             syn::Expr::If(expr) => &expr.attrs,
             syn::Expr::Index(expr) => &expr.attrs,
+            syn::Expr::Infer(expr) => &expr.attrs,
             syn::Expr::Let(expr) => &expr.attrs,
             syn::Expr::Lit(expr) => &expr.attrs,
             syn::Expr::Loop(expr) => &expr.attrs,
@@ -155,7 +155,6 @@ impl HasAttributes for syn::Expr {
             syn::Expr::Try(expr) => &expr.attrs,
             syn::Expr::TryBlock(expr) => &expr.attrs,
             syn::Expr::Tuple(expr) => &expr.attrs,
-            syn::Expr::Type(expr) => &expr.attrs,
             syn::Expr::Unary(expr) => &expr.attrs,
             syn::Expr::Unsafe(expr) => &expr.attrs,
             syn::Expr::While(expr) => &expr.attrs,
@@ -168,16 +167,15 @@ impl HasAttributes for syn::Expr {
         match self {
             syn::Expr::Array(expr) => Ok(&mut expr.attrs),
             syn::Expr::Assign(expr) => Ok(&mut expr.attrs),
-            syn::Expr::AssignOp(expr) => Ok(&mut expr.attrs),
             syn::Expr::Async(expr) => Ok(&mut expr.attrs),
             syn::Expr::Await(expr) => Ok(&mut expr.attrs),
             syn::Expr::Binary(expr) => Ok(&mut expr.attrs),
             syn::Expr::Block(expr) => Ok(&mut expr.attrs),
-            syn::Expr::Box(expr) => Ok(&mut expr.attrs),
             syn::Expr::Break(expr) => Ok(&mut expr.attrs),
             syn::Expr::Call(expr) => Ok(&mut expr.attrs),
             syn::Expr::Cast(expr) => Ok(&mut expr.attrs),
             syn::Expr::Closure(expr) => Ok(&mut expr.attrs),
+            syn::Expr::Const(expr) => Ok(&mut expr.attrs),
             syn::Expr::Continue(expr) => Ok(&mut expr.attrs),
             syn::Expr::Field(expr) => Ok(&mut expr.attrs),
             syn::Expr::ForLoop(expr) => Ok(&mut expr.attrs),
@@ -200,7 +198,6 @@ impl HasAttributes for syn::Expr {
             syn::Expr::Try(expr) => Ok(&mut expr.attrs),
             syn::Expr::TryBlock(expr) => Ok(&mut expr.attrs),
             syn::Expr::Tuple(expr) => Ok(&mut expr.attrs),
-            syn::Expr::Type(expr) => Ok(&mut expr.attrs),
             syn::Expr::Unary(expr) => Ok(&mut expr.attrs),
             syn::Expr::Unsafe(expr) => Ok(&mut expr.attrs),
             syn::Expr::While(expr) => Ok(&mut expr.attrs),
@@ -219,22 +216,22 @@ impl HasAttributes for syn::Expr {
 
 impl_has_attributes!(syn::ExprArray, #full);
 impl_has_attributes!(syn::ExprAssign, #full);
-impl_has_attributes!(syn::ExprAssignOp, #full);
 impl_has_attributes!(syn::ExprAsync, #full);
 impl_has_attributes!(syn::ExprAwait, #full);
 impl_has_attributes!(syn::ExprBinary, #full);
 impl_has_attributes!(syn::ExprBlock, #full);
-impl_has_attributes!(syn::ExprBox, #full);
 impl_has_attributes!(syn::ExprBreak, #full);
 impl_has_attributes!(syn::ExprCall, #full);
 impl_has_attributes!(syn::ExprCast, #full);
 impl_has_attributes!(syn::ExprClosure, #full);
+impl_has_attributes!(syn::ExprConst, #full);
 impl_has_attributes!(syn::ExprContinue, #full);
 impl_has_attributes!(syn::ExprField, #full);
 impl_has_attributes!(syn::ExprForLoop, #full);
 impl_has_attributes!(syn::ExprGroup, #full);
 impl_has_attributes!(syn::ExprIf, #full);
 impl_has_attributes!(syn::ExprIndex, #full);
+impl_has_attributes!(syn::ExprInfer, #full);
 impl_has_attributes!(syn::ExprLet, #full);
 impl_has_attributes!(syn::ExprLit, #full);
 impl_has_attributes!(syn::ExprLoop, #full);
@@ -251,7 +248,6 @@ impl_has_attributes!(syn::ExprStruct, #full);
 impl_has_attributes!(syn::ExprTry, #full);
 impl_has_attributes!(syn::ExprTryBlock, #full);
 impl_has_attributes!(syn::ExprTuple, #full);
-impl_has_attributes!(syn::ExprType, #full);
 impl_has_attributes!(syn::ExprUnary, #full);
 impl_has_attributes!(syn::ExprUnsafe, #full);
 impl_has_attributes!(syn::ExprWhile, #full);
@@ -302,7 +298,7 @@ impl HasAttributes for syn::ImplItem {
     fn attrs(&self) -> &[syn::Attribute] {
         match self {
             syn::ImplItem::Const(item) => &item.attrs,
-            syn::ImplItem::Method(item) => &item.attrs,
+            syn::ImplItem::Fn(item) => &item.attrs,
             syn::ImplItem::Type(item) => &item.attrs,
             syn::ImplItem::Macro(item) => &item.attrs,
             _ => &[],
@@ -311,7 +307,7 @@ impl HasAttributes for syn::ImplItem {
     fn attrs_mut(&mut self) -> Result<&mut Vec<syn::Attribute>> {
         match self {
             syn::ImplItem::Const(item) => Ok(&mut item.attrs),
-            syn::ImplItem::Method(item) => Ok(&mut item.attrs),
+            syn::ImplItem::Fn(item) => Ok(&mut item.attrs),
             syn::ImplItem::Type(item) => Ok(&mut item.attrs),
             syn::ImplItem::Macro(item) => Ok(&mut item.attrs),
             syn::ImplItem::Verbatim(_) => Err(syn::Error::new_spanned(
@@ -327,8 +323,8 @@ impl HasAttributes for syn::ImplItem {
 }
 
 impl_has_attributes!(syn::ImplItemConst, #full);
+impl_has_attributes!(syn::ImplItemFn, #full);
 impl_has_attributes!(syn::ImplItemMacro, #full);
-impl_has_attributes!(syn::ImplItemMethod, #full);
 impl_has_attributes!(syn::ImplItemType, #full);
 
 #[cfg(feature = "full")]
@@ -343,7 +339,6 @@ impl HasAttributes for syn::Item {
             syn::Item::ForeignMod(expr) => &expr.attrs,
             syn::Item::Impl(expr) => &expr.attrs,
             syn::Item::Macro(expr) => &expr.attrs,
-            syn::Item::Macro2(expr) => &expr.attrs,
             syn::Item::Mod(expr) => &expr.attrs,
             syn::Item::Static(expr) => &expr.attrs,
             syn::Item::Struct(expr) => &expr.attrs,
@@ -364,7 +359,6 @@ impl HasAttributes for syn::Item {
             syn::Item::ForeignMod(expr) => Ok(&mut expr.attrs),
             syn::Item::Impl(expr) => Ok(&mut expr.attrs),
             syn::Item::Macro(expr) => Ok(&mut expr.attrs),
-            syn::Item::Macro2(expr) => Ok(&mut expr.attrs),
             syn::Item::Mod(expr) => Ok(&mut expr.attrs),
             syn::Item::Static(expr) => Ok(&mut expr.attrs),
             syn::Item::Struct(expr) => Ok(&mut expr.attrs),
@@ -392,7 +386,6 @@ impl_has_attributes!(syn::ItemFn, #full);
 impl_has_attributes!(syn::ItemForeignMod, #full);
 impl_has_attributes!(syn::ItemImpl, #full);
 impl_has_attributes!(syn::ItemMacro, #full);
-impl_has_attributes!(syn::ItemMacro2, #full);
 impl_has_attributes!(syn::ItemMod, #full);
 impl_has_attributes!(syn::ItemStatic, #full);
 impl_has_attributes!(syn::ItemStruct, #full);
@@ -401,7 +394,7 @@ impl_has_attributes!(syn::ItemTraitAlias, #full);
 impl_has_attributes!(syn::ItemType, #full);
 impl_has_attributes!(syn::ItemUnion, #full);
 impl_has_attributes!(syn::ItemUse, #full);
-impl_has_attributes!(syn::LifetimeDef);
+impl_has_attributes!(syn::LifetimeParam);
 impl_has_attributes!(syn::Local, #full);
 
 #[cfg(feature = "full")]
@@ -409,11 +402,12 @@ impl_has_attributes!(syn::Local, #full);
 impl HasAttributes for syn::Pat {
     fn attrs(&self) -> &[syn::Attribute] {
         match self {
-            syn::Pat::Box(expr) => &expr.attrs,
+            syn::Pat::Const(expr) => &expr.attrs,
             syn::Pat::Ident(expr) => &expr.attrs,
             syn::Pat::Lit(expr) => &expr.attrs,
             syn::Pat::Macro(expr) => &expr.attrs,
             syn::Pat::Or(expr) => &expr.attrs,
+            syn::Pat::Paren(expr) => &expr.attrs,
             syn::Pat::Path(expr) => &expr.attrs,
             syn::Pat::Range(expr) => &expr.attrs,
             syn::Pat::Reference(expr) => &expr.attrs,
@@ -429,11 +423,12 @@ impl HasAttributes for syn::Pat {
     }
     fn attrs_mut(&mut self) -> Result<&mut Vec<syn::Attribute>> {
         match self {
-            syn::Pat::Box(expr) => Ok(&mut expr.attrs),
+            syn::Pat::Const(expr) => Ok(&mut expr.attrs),
             syn::Pat::Ident(expr) => Ok(&mut expr.attrs),
             syn::Pat::Lit(expr) => Ok(&mut expr.attrs),
             syn::Pat::Macro(expr) => Ok(&mut expr.attrs),
             syn::Pat::Or(expr) => Ok(&mut expr.attrs),
+            syn::Pat::Paren(expr) => Ok(&mut expr.attrs),
             syn::Pat::Path(expr) => Ok(&mut expr.attrs),
             syn::Pat::Range(expr) => Ok(&mut expr.attrs),
             syn::Pat::Reference(expr) => Ok(&mut expr.attrs),
@@ -456,13 +451,9 @@ impl HasAttributes for syn::Pat {
     }
 }
 
-impl_has_attributes!(syn::PatBox, #full);
 impl_has_attributes!(syn::PatIdent, #full);
-impl_has_attributes!(syn::PatLit, #full);
-impl_has_attributes!(syn::PatMacro, #full);
 impl_has_attributes!(syn::PatOr, #full);
-impl_has_attributes!(syn::PatPath, #full);
-impl_has_attributes!(syn::PatRange, #full);
+impl_has_attributes!(syn::PatParen, #full);
 impl_has_attributes!(syn::PatReference, #full);
 impl_has_attributes!(syn::PatRest, #full);
 impl_has_attributes!(syn::PatSlice, #full);
@@ -479,7 +470,7 @@ impl HasAttributes for syn::TraitItem {
     fn attrs(&self) -> &[syn::Attribute] {
         match self {
             syn::TraitItem::Const(item) => &item.attrs,
-            syn::TraitItem::Method(item) => &item.attrs,
+            syn::TraitItem::Fn(item) => &item.attrs,
             syn::TraitItem::Type(item) => &item.attrs,
             syn::TraitItem::Macro(item) => &item.attrs,
             _ => &[],
@@ -488,7 +479,7 @@ impl HasAttributes for syn::TraitItem {
     fn attrs_mut(&mut self) -> Result<&mut Vec<syn::Attribute>> {
         match self {
             syn::TraitItem::Const(item) => Ok(&mut item.attrs),
-            syn::TraitItem::Method(item) => Ok(&mut item.attrs),
+            syn::TraitItem::Fn(item) => Ok(&mut item.attrs),
             syn::TraitItem::Type(item) => Ok(&mut item.attrs),
             syn::TraitItem::Macro(item) => Ok(&mut item.attrs),
             syn::TraitItem::Verbatim(_) => Err(syn::Error::new_spanned(
@@ -504,11 +495,11 @@ impl HasAttributes for syn::TraitItem {
 }
 
 impl_has_attributes!(syn::TraitItemConst, #full);
+impl_has_attributes!(syn::TraitItemFn, #full);
 impl_has_attributes!(syn::TraitItemMacro, #full);
-impl_has_attributes!(syn::TraitItemMethod, #full);
 impl_has_attributes!(syn::TraitItemType, #full);
 impl_has_attributes!(syn::TypeParam);
-impl_has_attributes!(syn::Variadic);
+impl_has_attributes!(syn::Variadic, #full);
 impl_has_attributes!(syn::Variant);
 
 /// Converts a [`HasAttributes`] type to a stored container value.
