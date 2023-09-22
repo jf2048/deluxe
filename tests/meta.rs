@@ -423,7 +423,7 @@ fn struct_append() {
     );
     ::std::assert_eq!(
         parse(q! { { idents = [], exprs = ! } }).unwrap_err_string(),
-        "unexpected end of input, expected expression"
+        "unexpected end of input, expected an expression"
     );
 }
 
