@@ -837,10 +837,22 @@ macro_rules! impl_parse_meta_item_map {
 
 impl_parse_meta_item_collection!(Vec<T>, v, item, v.push(item));
 impl_parse_meta_item_set!(BTreeSet<T: Ord>, set, item, set.insert(item));
-impl_parse_meta_item_map!(BTreeMap<K: Ord, V>, map, key, value, map.insert(key, value).is_none());
+impl_parse_meta_item_map!(
+    BTreeMap<K: Ord, V>,
+    map,
+    key,
+    value,
+    map.insert(key, value).is_none()
+);
 impl_parse_meta_item_collection!(BinaryHeap<T: Ord>, heap, item, heap.push(item));
 impl_parse_meta_item_set!(HashSet<T: Hash + Eq>, set, item, set.insert(item));
-impl_parse_meta_item_map!(HashMap<K: Hash + Eq, V>, map, key, value, map.insert(key, value).is_none());
+impl_parse_meta_item_map!(
+    HashMap<K: Hash + Eq, V>,
+    map,
+    key,
+    value,
+    map.insert(key, value).is_none()
+);
 impl_parse_meta_item_collection!(LinkedList<T>, list, item, list.push_back(item));
 impl_parse_meta_item_collection!(VecDeque<T>, v, item, v.push_back(item));
 

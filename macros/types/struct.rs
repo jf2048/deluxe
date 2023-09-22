@@ -483,7 +483,7 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
                             match errors
                                 .push_result(mod_path_vec::parse_meta_item_named(input, path, span))
                             {
-                                Some(attrs) => attributes.extend(attrs.into_iter()),
+                                Some(attrs) => attributes.extend(attrs),
                                 None => parse_helpers::skip_meta_item(input),
                             }
                         }
