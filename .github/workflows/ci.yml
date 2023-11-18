@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
       - run: cargo build -r ${{ matrix.features }} --workspace
       - run: cargo test -r ${{ matrix.features }} --workspace
 
@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
       - run: cargo fmt --all --check
@@ -40,8 +40,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2023-11-18
           components: clippy
       - run: cargo clippy --workspace --all-targets
 
@@ -53,3 +54,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo doc --workspace --no-deps
+
+  msrv:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-no-dev-deps
+      - uses: dtolnay/rust-toolchain@1.67.1
+      - run: cargo no-dev-deps check
