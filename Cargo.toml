@@ -11,6 +11,7 @@ readme = "README.md"
 keywords = ["macros", "derive", "attributes"]
 include = ["/src", "/tests", "/README.md", "/COPYING"]
 resolver = "2"
+rust-version = "1.67.1"
 
 [features]
 default = ["full", "proc-macro"]
