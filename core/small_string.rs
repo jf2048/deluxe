@@ -103,6 +103,7 @@ impl<'a> Ord for SmallString<'a> {
     }
 }
 
+#[allow(clippy::non_canonical_partial_ord_impl)]
 impl<'a> PartialOrd for SmallString<'a> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
