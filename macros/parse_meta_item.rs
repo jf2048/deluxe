@@ -335,7 +335,8 @@ pub fn impl_parse_meta_item(input: syn::DeriveInput, errors: &Errors) -> TokenSt
             return Default::default();
         }
     };
-    let MetaDef {
+
+    let Some(MetaDef {
         parse,
         inline,
         flag,
@@ -343,9 +344,9 @@ pub fn impl_parse_meta_item(input: syn::DeriveInput, errors: &Errors) -> TokenSt
         extra,
         crate_path: crate_,
         priv_path: priv_,
-    } = match meta {
-        Some(m) => m,
-        None => return Default::default(),
+    }) = meta
+    else {
+        return TokenStream::default();
     };
 
     let ident = &input.ident;

@@ -398,9 +398,8 @@ impl<'s> ParseAttributes<'s, syn::DeriveInput> for Struct<'s> {
         parse_helpers::parse_struct_attr_tokens(
             parse_helpers::ref_tokens::<Self, _>(i),
             |inputs, _| {
-                let struct_ = match &i.data {
-                    syn::Data::Struct(s) => s,
-                    _ => return Err(syn::Error::new_spanned(i, "wrong DeriveInput type")),
+                let syn::Data::Struct(struct_) = &i.data else {
+                    return Err(syn::Error::new_spanned(i, "wrong DeriveInput type"));
                 };
                 let errors = crate::Errors::new();
                 let mut transparent = FieldStatus::None;

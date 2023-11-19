@@ -89,9 +89,8 @@ pub fn derive_my_description(item: TokenStream) -> TokenStream {
     let mut input = syn::parse::<syn::DeriveInput>(item).unwrap();
 
     // Extract a description, modifying `input.attrs` to remove the matched attributes.
-    let MyDescription { name, version } = match deluxe::extract_attributes(&mut input) {
-        Ok(desc) => desc,
-        Err(e) => return e.into_compile_error().into()
+    let Ok(MyDescription { name, version }) = deluxe::extract_attributes(&mut input) else {
+        return e.into_compile_error().into()
     };
 
     let ident = &input.ident;
@@ -136,9 +135,8 @@ pub fn my_desc(
     attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let MyDescription { name, version } = match deluxe::parse::<MyDescription>(attr) {
-        Ok(desc) => desc,
-        Err(e) => return e.into_compile_error().into()
+    let Ok(MyDescription { name, version }) = deluxe::parse(attr) else {
+        return e.into_compile_error().into()
     };
 
     let tokens = quote::quote! {
@@ -305,9 +303,8 @@ pub fn my_desc_mod(
     attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let mut module = syn::parse::<syn::ItemMod>(item) {
-        Ok(module) => module,
-        Err(e) => return e.into_compile_error().into()
+    let mut Ok(module) = syn::parse::<syn::ItemMod>(item) else {
+        return e.into_compile_error().into()
     };
 
     let errors = deluxe::Errors::new();
@@ -533,9 +530,8 @@ pub fn derive_my_object(item: TokenStream) -> TokenStream {
     let input = syn::parse::<syn::DeriveInput>(item).unwrap();
 
     // `obj.container` now holds a reference to `input`
-    let obj: MyObject = match deluxe::parse_attributes(&input) {
-        Ok(obj) => obj,
-        Err(e) => return e.into_compile_error().into()
+    let Ok(obj: MyObject) = deluxe::parse_attributes(&input) else {
+        return e.into_compile_error().into()
     };
 
     let tokens = quote::quote! { /* ... generate some code here ... */ };

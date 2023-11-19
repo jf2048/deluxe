@@ -186,7 +186,7 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
             return Default::default();
         }
     };
-    let AttrImpl {
+    let Some(AttrImpl {
         parse,
         crate_path: crate_,
         priv_path: priv_,
@@ -194,9 +194,9 @@ pub fn impl_parse_attributes(input: syn::DeriveInput, errors: &Errors, mode: Mod
         container_field,
         mut container_lifetime,
         container_ty,
-    } = match attr {
-        Some(a) => a,
-        None => return Default::default(),
+    }) = attr
+    else {
+        return TokenStream::default();
     };
 
     let ident = &input.ident;
