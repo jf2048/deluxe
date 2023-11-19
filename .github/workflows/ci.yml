@@ -11,78 +11,56 @@ env:
 
 jobs:
   build_and_test:
-    name: Deluxe
+    name: Build & Test
+    strategy:
+      matrix:
+        features: ["--all-features", "--no-default-features"]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-      - run: cargo build -r --all-features --workspace
-      - run: cargo test -r --all-features --workspace
-
-  build_and_test_no_default:
-    name: Deluxe No Default Features
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-      - run: cargo build -r --no-default-features --workspace
-      - run: cargo test -r --no-default-features --workspace
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo build -r ${{ matrix.features }} --workspace
+      - run: cargo test -r ${{ matrix.features }} --workspace
 
   rustfmt:
-    name: Deluxe Rustfmt
+    name: Rustfmt
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
           components: rustfmt
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+      - run: cargo fmt --all --check
 
   clippy:
-    name: Deluxe Clippy
+    name: Clippy
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
+          toolchain: nightly-2023-11-18
           components: clippy
-      - uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --workspace
+      - run: cargo clippy --workspace --all-targets
 
   docs:
-    name: Deluxe Docs
+    name: Docs
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rust-docs
-      - uses: actions-rs/cargo@v1
-        with:
-          command: doc
-          args: --workspace
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo doc --workspace --no-deps
+
+  msrv:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-no-dev-deps
+      - uses: dtolnay/rust-toolchain@1.67.1
+      - run: cargo no-dev-deps check
