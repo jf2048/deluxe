@@ -18,7 +18,7 @@ pub enum FieldDefault {
 impl FieldDefault {
     pub fn to_expr(&self, ty: Option<&syn::Type>, priv_: &syn::Path) -> Cow<TokenStream> {
         match self {
-            FieldDefault::Default(span) => {
+            Self::Default(span) => {
                 let ty = if let Some(ty) = ty {
                     quote_spanned! { ty.span() => #ty }
                 } else {
@@ -28,7 +28,7 @@ impl FieldDefault {
                     <#ty as #priv_::Default>::default()
                 })
             }
-            FieldDefault::Expr(expr) => Cow::Borrowed(expr),
+            Self::Expr(expr) => Cow::Borrowed(expr),
         }
     }
 }

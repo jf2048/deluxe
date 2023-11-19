@@ -262,7 +262,7 @@ impl<T> SpannedValue<T> {
     }
     /// Unwraps a `SpannedValue` into a `T`. Note this is an associated function, not a method.
     #[inline]
-    pub fn into_inner(value: SpannedValue<T>) -> T {
+    pub fn into_inner(value: Self) -> T {
         value.value
     }
 }
