@@ -84,20 +84,20 @@ impl<T> FieldStatus<T> {
     }
     /// Returns the status if it contains a value, or if it is `None` then returns `b`.
     #[inline]
-    pub fn or(self, b: FieldStatus<T>) -> FieldStatus<T> {
+    pub fn or(self, b: Self) -> Self {
         match self {
-            Self::Some(x) => FieldStatus::Some(x),
-            Self::ParseError => FieldStatus::ParseError,
+            Self::Some(x) => Self::Some(x),
+            Self::ParseError => Self::ParseError,
             Self::None => b,
         }
     }
     /// Returns the status if it contains a value, or if it is `None` then calls `f` and returns
     /// the result.
     #[inline]
-    pub fn or_else<F: FnOnce() -> FieldStatus<T>>(self, f: F) -> FieldStatus<T> {
+    pub fn or_else<F: FnOnce() -> Self>(self, f: F) -> Self {
         match self {
-            Self::Some(x) => FieldStatus::Some(x),
-            Self::ParseError => FieldStatus::ParseError,
+            Self::Some(x) => Self::Some(x),
+            Self::ParseError => Self::ParseError,
             Self::None => f(),
         }
     }
@@ -168,12 +168,12 @@ impl<T> FieldStatus<T> {
         match errors.push_result(func(input, name, span)) {
             Some(v) => {
                 if self.is_none() {
-                    *self = FieldStatus::Some(v)
+                    *self = Self::Some(v)
                 }
             }
             None => {
                 if self.is_none() {
-                    *self = FieldStatus::ParseError;
+                    *self = Self::ParseError;
                 }
                 skip_meta_item(input);
             }
@@ -194,9 +194,9 @@ impl<T> FieldStatus<T> {
         F: FnOnce(ParseStream, ParseMode) -> Result<T>,
     {
         match errors.push_result(func(input, ParseMode::Unnamed)) {
-            Some(v) => *self = FieldStatus::Some(v),
+            Some(v) => *self = Self::Some(v),
             None => {
-                *self = FieldStatus::ParseError;
+                *self = Self::ParseError;
                 skip_meta_item(input);
             }
         }
@@ -939,8 +939,10 @@ where
     P: crate::ParseAttributes<'t, T>,
     T: crate::HasAttributes,
 {
-    T::attrs(input).iter().filter_map(|a| {
-        P::path_matches(a.path()).then(|| {
+    T::attrs(input)
+        .iter()
+        .filter(|&a| P::path_matches(a.path()))
+        .map(|a| {
             let value = match &a.meta {
                 syn::Meta::Path(_) => Default::default(),
                 syn::Meta::List(list) => proc_macro2::TokenTree::Group(proc_macro2::Group::new(
@@ -956,7 +958,6 @@ where
             };
             (value, key_to_string(a.path()), a.path().span())
         })
-    })
 }
 
 /// Returns an iterator of [`TokenStream`](proc_macro2::TokenStream)s and the corresponding path

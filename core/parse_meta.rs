@@ -1070,7 +1070,7 @@ impl ParseMetaItem for proc_macro2::Group {
                 [Parenthesis, Brace, Bracket, None]
             } {
                 if let Some((group, _, cursor)) = cursor.group(delim) {
-                    return Ok((proc_macro2::Group::new(delim, group.token_stream()), cursor));
+                    return Ok((Self::new(delim, group.token_stream()), cursor));
                 }
             }
             Err(crate::Error::new(
@@ -1224,7 +1224,7 @@ impl<T: ParseMetaItem, P: Parse + Peek + Default> ParseMetaFlatUnnamed for Punct
         _mode: ParseMode,
         _index: usize,
     ) -> Result<Self> {
-        let mut p = Punctuated::new();
+        let mut p = Self::new();
         let errors = Errors::new();
         for input in inputs {
             let input = input.borrow();
@@ -1384,7 +1384,7 @@ impl_parse_meta_paren_item_syn!(syn::MetaNameValue);
 impl ParseMetaItem for syn::Pat {
     #[inline]
     fn parse_meta_item(input: ParseStream, _mode: ParseMode) -> Result<Self> {
-        syn::Pat::parse_single(input)
+        Self::parse_single(input)
     }
 }
 #[cfg(feature = "full")]

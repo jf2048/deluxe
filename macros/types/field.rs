@@ -18,7 +18,7 @@ pub enum FieldDefault {
 impl FieldDefault {
     pub fn to_expr(&self, ty: Option<&syn::Type>, priv_: &syn::Path) -> Cow<TokenStream> {
         match self {
-            FieldDefault::Default(span) => {
+            Self::Default(span) => {
                 let ty = if let Some(ty) = ty {
                     quote_spanned! { ty.span() => #ty }
                 } else {
@@ -28,7 +28,7 @@ impl FieldDefault {
                     <#ty as #priv_::Default>::default()
                 })
             }
-            FieldDefault::Expr(expr) => Cow::Borrowed(expr),
+            Self::Expr(expr) => Cow::Borrowed(expr),
         }
     }
 }
@@ -507,9 +507,13 @@ impl<'f> Field<'f> {
             .enumerate()
             .map(|(i, _)| quote::format_ident!("field{i}", span = Span::mixed_site()))
             .collect::<Vec<_>>();
-        let container_def = fields.iter().enumerate().filter_map(|(i, f)| {
-            (f.is_container() && *mode != TokenMode::ParseMetaItem).then(|| {
-                let name = names[i].clone();
+        let container_def = fields
+            .iter()
+            .zip(&names)
+            .filter_map(|(f, name)| {
+                (f.is_container() && *mode != TokenMode::ParseMetaItem).then_some(name)
+            })
+            .map(|name| {
                 let func = match mode {
                     TokenMode::ParseAttributes => quote! { container_from },
                     TokenMode::ExtractAttributes => quote! { container_from_mut },
@@ -518,8 +522,7 @@ impl<'f> Field<'f> {
                 quote_mixed! {
                     #name = #priv_::FieldStatus::Some(#crate_::ContainerFrom::#func(obj));
                 }
-            })
-        });
+            });
         let field_errors = {
             let mut cur_index = 0usize;
             let mut extra_counts = quote! {};
@@ -685,14 +688,16 @@ impl<'f> Field<'f> {
                 #(#transforms)*
             }
         });
-        let field_unwraps = fields.iter().enumerate().filter_map(|(i, _)| {
-            (!matches!(target, ParseTarget::Var(_))).then(|| {
-                let name = &names[i];
-                quote_mixed! {
-                    let #name = #name.unwrap_or_else(|| #priv_::unreachable!());
-                }
+        let field_unwraps = (!matches!(target, ParseTarget::Var(_)))
+            .then(|| {
+                names.iter().take(fields.len()).map(|name| {
+                    quote_mixed! {
+                        let #name = #name.unwrap_or_else(|| #priv_::unreachable!());
+                    }
+                })
             })
-        });
+            .into_iter()
+            .flatten();
 
         let option_inits = fields.iter().enumerate().map(|(i, f)| {
             let name = &names[i];
