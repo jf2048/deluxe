@@ -176,9 +176,8 @@ impl<'e> ParseAttributes<'e, syn::DeriveInput> for Enum<'e> {
         parse_helpers::parse_struct_attr_tokens(
             parse_helpers::ref_tokens::<Self, _>(i),
             |inputs, _| {
-                let enum_ = match &i.data {
-                    syn::Data::Enum(e) => e,
-                    _ => return Err(syn::Error::new_spanned(i, "wrong DeriveInput type")),
+                let syn::Data::Enum(enum_) = &i.data else {
+                    return Err(syn::Error::new_spanned(i, "wrong DeriveInput type"));
                 };
                 let errors = crate::Errors::new();
                 let mut default = FieldStatus::<FieldDefault>::None;
